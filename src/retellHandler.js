@@ -1,0 +1,254 @@
+const { Router } = require('express');
+const Anthropic = require('@anthropic-ai/sdk');
+const { RETELL_API_KEY, ANTHROPIC_API_KEY } = require('../config/constants');
+const { getSystemPrompt } = require('../prompts/systemPrompt');
+const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
+const state = require('./conversationState');
+const n8n = require('./n8nClient');
+
+const router = Router();
+
+const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+const ACTION_REGEX = /##ACTION:(.*?)##/s;
+
+let responseCounter = 0;
+
+function log(callId, message) {
+  console.log(`[${new Date().toISOString()}] [retellHandler] [${callId}] ${message}`);
+}
+
+// Verify Retell webhook signature
+function verifyRetell(req, res, next) {
+  if (RETELL_API_KEY) {
+    const sig = req.headers['x-retell-signature'];
+    if (sig !== RETELL_API_KEY) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+  next();
+}
+
+router.use(verifyRetell);
+
+// POST /retell-webhook — main Retell LLM webhook endpoint
+router.post('/', async (req, res) => {
+  const { call_id, interaction_type, transcript, call } = req.body;
+  const callId = call_id || call?.call_id;
+
+  if (!callId) {
+    return res.status(400).json({ error: 'Missing call_id' });
+  }
+
+  try {
+    switch (interaction_type) {
+      case 'call_ended':
+        return await handleCallEnded(callId, transcript, call, res);
+
+      case 'response_required':
+      case 'reminder_required':
+        return await handleResponseRequired(callId, interaction_type, transcript, call, res);
+
+      default:
+        log(callId, `Unhandled interaction_type: ${interaction_type}`);
+        return res.json({ response_id: ++responseCounter, content: '', content_complete: true, end_call: false });
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Unhandled error:`, err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// --- call_ended ---
+async function handleCallEnded(callId, transcript, call, res) {
+  log(callId, 'Call ended');
+
+  const callState = state.get(callId);
+
+  // Store final transcript
+  if (callState && transcript) {
+    state.update(callId, { transcript });
+  }
+
+  // Fire CALL_COMPLETE to n8n with standardized payload
+  const rawTranscript = formatTranscript(transcript || callState?.transcript || []);
+  await n8n.fireWebhook('CALL_COMPLETE', {
+    call_id: callId,
+    caller: {
+      name: callState?.callerName || null,
+      phone: callState?.callerPhone || call?.from_number || null,
+      address: callState?.callerAddress || null,
+    },
+    details: {
+      intent: callState?.intent || null,
+      service_requested: callState?.serviceRequested || null,
+      urgency: callState?.urgency || null,
+      handed_off: callState?.handedOff || false,
+      from_number: call?.from_number || null,
+      to_number: call?.to_number || null,
+      metadata: call?.metadata || null,
+    },
+    raw_transcript: rawTranscript,
+  });
+  log(callId, `Fired CALL_COMPLETE webhook — intent: ${callState?.intent}`);
+
+  // Clean up state after delay
+  setTimeout(() => state.remove(callId), 5 * 60 * 1000);
+
+  return res.json({ response_id: ++responseCounter, content: '', content_complete: true, end_call: false });
+}
+
+// --- response_required / reminder_required ---
+async function handleResponseRequired(callId, interactionType, transcript, call, res) {
+  // Get or create conversation state
+  let callState = state.get(callId);
+  if (!callState) {
+    callState = state.create(callId);
+    if (call?.from_number) {
+      state.update(callId, { callerPhone: call.from_number });
+    }
+    log(callId, `New call from ${call?.from_number || 'unknown'}`);
+  }
+
+  // Build messages array: system prompt + full transcript
+  const systemPrompt = getSystemPrompt();
+  const messages = buildMessages(transcript, interactionType);
+
+  log(callId, `${interactionType} — ${messages.length} messages, calling Anthropic`);
+
+  let assistantText;
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 512,
+      system: systemPrompt,
+      messages,
+    });
+
+    assistantText = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Anthropic API error:`, err.message);
+    log(callId, 'Anthropic call failed — returning fallback response');
+
+    return res.json({
+      response_id: ++responseCounter,
+      content: "I'm sorry, I'm having a brief technical issue. Let me have someone call you right back.",
+      content_complete: true,
+      end_call: true,
+    });
+  }
+
+  // Parse action block if present
+  let spokenResponse = assistantText;
+  let endCall = false;
+  const actionMatch = assistantText.match(ACTION_REGEX);
+
+  if (actionMatch) {
+    // Strip the action block from spoken response
+    spokenResponse = assistantText.replace(ACTION_REGEX, '').trim();
+
+    try {
+      const action = JSON.parse(actionMatch[1]);
+      await handleAction(callId, action, callState);
+    } catch (parseErr) {
+      console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Failed to parse action JSON:`, parseErr.message);
+    }
+  }
+
+  // Store the assistant response in transcript
+  state.addTranscriptEntry(callId, 'agent', spokenResponse);
+
+  // Check if this is a human transfer — don't end call, Retell handles the transfer
+  const isTransfer = callState.handedOff;
+
+  return res.json({
+    response_id: ++responseCounter,
+    content: spokenResponse,
+    content_complete: true,
+    end_call: endCall,
+    ...(isTransfer && { metadata: { transfer_requested: true } }),
+  });
+}
+
+// Build Anthropic messages from Retell transcript
+function buildMessages(transcript, interactionType) {
+  const messages = [];
+
+  if (transcript && transcript.length > 0) {
+    for (const turn of transcript) {
+      const role = turn.role === 'agent' ? 'assistant' : 'user';
+      const content = turn.content;
+      if (!content) continue;
+
+      // Anthropic requires alternating roles — merge consecutive same-role messages
+      if (messages.length > 0 && messages[messages.length - 1].role === role) {
+        messages[messages.length - 1].content += ' ' + content;
+      } else {
+        messages.push({ role, content });
+      }
+    }
+  }
+
+  // If no transcript yet or reminder, add a nudge as user message
+  if (messages.length === 0) {
+    messages.push({ role: 'user', content: '[Call connected. Greet the caller.]' });
+  } else if (interactionType === 'reminder_required') {
+    // Retell sends reminder when user has been silent — add a prompt
+    const lastRole = messages[messages.length - 1].role;
+    if (lastRole === 'assistant') {
+      messages.push({ role: 'user', content: '[Caller is silent. Gently check if they are still there or need help.]' });
+    }
+  }
+
+  // Ensure first message is from user (Anthropic requirement)
+  if (messages[0]?.role === 'assistant') {
+    messages.unshift({ role: 'user', content: '[Call connected.]' });
+  }
+
+  return messages;
+}
+
+// Handle parsed action blocks — validate, enrich, fire to n8n, update state
+async function handleAction(callId, action, callState) {
+  const { type, data } = action;
+  if (!type || !data) return;
+
+  log(callId, `Action detected: ${type}`);
+
+  // Update conversation state with collected data
+  const updates = { intent: type.toLowerCase() };
+  if (data.name) updates.callerName = data.name;
+  if (data.phone) updates.callerPhone = data.phone;
+  if (data.address) updates.callerAddress = data.address;
+  if (data.service_needed) updates.serviceRequested = data.service_needed;
+  if (data.job_description) updates.serviceRequested = data.job_description;
+  if (data.preferred_date) updates.preferredDate = data.preferred_date;
+  if (data.preferred_time) updates.preferredTime = data.preferred_time;
+  if (data.access_notes) updates.notes = data.access_notes;
+  if (type === 'EMERGENCY') updates.urgency = 'emergency';
+  if (type === 'HUMAN_TRANSFER') updates.handedOff = true;
+  state.update(callId, updates);
+
+  // Validate and enrich via intentRouter
+  const transcript = callState.transcript || [];
+  const { isValid, missingFields, enrichedData } = classifyAndEnrich(transcript, action);
+
+  if (!isValid) {
+    log(callId, `Action ${type} has missing fields: ${missingFields.join(', ')} — firing anyway with available data`);
+  }
+
+  // Fire to n8n with standardized payload
+  await n8n.fireWebhook(type, {
+    call_id: callId,
+    caller: enrichedData.caller,
+    details: enrichedData.details,
+    raw_transcript: enrichedData.raw_transcript,
+  });
+
+  log(callId, `Fired ${type} webhook — ${data.name || 'unknown'}${data.address ? ' at ' + data.address : ''}`);
+}
+
+module.exports = router;

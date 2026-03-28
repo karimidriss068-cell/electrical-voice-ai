@@ -1,0 +1,20 @@
+{
+  "name": "electrical-voice-ai",
+  "version": "1.0.0",
+  "description": "Voice AI receptionist backend for an electrical services company, powered by Retell AI",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "axios": "^1.14.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "uuid": "^13.0.0"
+  }
+}
