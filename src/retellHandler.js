@@ -1,6 +1,6 @@
 const { Router } = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
-const { RETELL_API_KEY, ANTHROPIC_API_KEY } = require('../config/constants');
+const OpenAI = require('openai');
+const { RETELL_API_KEY } = require('../config/constants');
 const { getSystemPrompt } = require('../prompts/systemPrompt');
 const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
 const state = require('./conversationState');
@@ -8,7 +8,8 @@ const n8n = require('./n8nClient');
 
 const router = Router();
 
-const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+// Initialize OpenAI
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 const ACTION_REGEX = /##ACTION:(.*?)##/s;
 
@@ -20,9 +21,6 @@ function log(callId, message) {
 
 // Verify Retell webhook signature (skip if no signature header sent)
 function verifyRetell(req, res, next) {
-  // Retell sends x-retell-signature header — verify if present
-  // Skip verification if no RETELL_API_KEY configured or no signature sent
-  // This allows the webhook to work during testing and with Retell
   const sig = req.headers['x-retell-signature'];
   if (RETELL_API_KEY && sig && sig !== RETELL_API_KEY) {
     console.warn(`[retellHandler] Signature mismatch — rejecting request`);
@@ -67,12 +65,10 @@ async function handleCallEnded(callId, transcript, call, res) {
 
   const callState = state.get(callId);
 
-  // Store final transcript
   if (callState && transcript) {
     state.update(callId, { transcript });
   }
 
-  // Fire CALL_COMPLETE to n8n with standardized payload
   const rawTranscript = formatTranscript(transcript || callState?.transcript || []);
   await n8n.fireWebhook('CALL_COMPLETE', {
     call_id: callId,
@@ -94,7 +90,6 @@ async function handleCallEnded(callId, transcript, call, res) {
   });
   log(callId, `Fired CALL_COMPLETE webhook — intent: ${callState?.intent}`);
 
-  // Clean up state after delay
   setTimeout(() => state.remove(callId), 5 * 60 * 1000);
 
   return res.json({ response_id: ++responseCounter, content: '', content_complete: true, end_call: false });
@@ -102,7 +97,6 @@ async function handleCallEnded(callId, transcript, call, res) {
 
 // --- response_required / reminder_required ---
 async function handleResponseRequired(callId, interactionType, transcript, call, res) {
-  // Get or create conversation state
   let callState = state.get(callId);
   if (!callState) {
     callState = state.create(callId);
@@ -112,29 +106,23 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
     log(callId, `New call from ${call?.from_number || 'unknown'}`);
   }
 
-  // Build messages array: system prompt + full transcript
   const systemPrompt = getSystemPrompt();
-  const messages = buildMessages(transcript, interactionType);
+  const messages = buildOpenAIMessages(systemPrompt, transcript, interactionType);
 
-  log(callId, `${interactionType} — ${messages.length} messages, calling Anthropic`);
+  log(callId, `${interactionType} — ${messages.length} messages, calling OpenAI`);
 
   let assistantText;
   try {
-    const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       max_tokens: 512,
-      system: systemPrompt,
       messages,
     });
 
-    assistantText = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('');
+    assistantText = response.choices[0]?.message?.content || '';
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Anthropic API error:`, err.message);
-    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Error details:`, err.status, err.error || '');
-    log(callId, `Anthropic call failed (${err.status || 'unknown'}): ${err.message}`);
+    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] OpenAI API error:`, err.message);
+    log(callId, `OpenAI call failed: ${err.message}`);
 
     return res.json({
       response_id: ++responseCounter,
@@ -151,7 +139,6 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
   const actionMatch = assistantText.match(ACTION_REGEX);
 
   if (actionMatch) {
-    // Strip the action block from spoken response
     spokenResponse = assistantText.replace(ACTION_REGEX, '').trim();
 
     try {
@@ -162,10 +149,8 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
     }
   }
 
-  // Store the assistant response in transcript
   state.addTranscriptEntry(callId, 'agent', spokenResponse);
 
-  // Check if this is a human transfer — don't end call, Retell handles the transfer
   const isTransfer = callState.handedOff;
 
   return res.json({
@@ -177,9 +162,9 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
   });
 }
 
-// Build Anthropic messages from Retell transcript
-function buildMessages(transcript, interactionType) {
-  const messages = [];
+// Build OpenAI messages array from Retell transcript
+function buildOpenAIMessages(systemPrompt, transcript, interactionType) {
+  const messages = [{ role: 'system', content: systemPrompt }];
 
   if (transcript && transcript.length > 0) {
     for (const turn of transcript) {
@@ -187,8 +172,8 @@ function buildMessages(transcript, interactionType) {
       const content = turn.content;
       if (!content) continue;
 
-      // Anthropic requires alternating roles — merge consecutive same-role messages
-      if (messages.length > 0 && messages[messages.length - 1].role === role) {
+      // Merge consecutive same-role messages
+      if (messages.length > 1 && messages[messages.length - 1].role === role) {
         messages[messages.length - 1].content += ' ' + content;
       } else {
         messages.push({ role, content });
@@ -196,33 +181,26 @@ function buildMessages(transcript, interactionType) {
     }
   }
 
-  // If no transcript yet or reminder, add a nudge as user message
-  if (messages.length === 0) {
+  // If no transcript yet, add initial prompt
+  if (messages.length === 1) {
     messages.push({ role: 'user', content: '[Call connected. Greet the caller.]' });
   } else if (interactionType === 'reminder_required') {
-    // Retell sends reminder when user has been silent — add a prompt
     const lastRole = messages[messages.length - 1].role;
     if (lastRole === 'assistant') {
       messages.push({ role: 'user', content: '[Caller is silent. Gently check if they are still there or need help.]' });
     }
   }
 
-  // Ensure first message is from user (Anthropic requirement)
-  if (messages[0]?.role === 'assistant') {
-    messages.unshift({ role: 'user', content: '[Call connected.]' });
-  }
-
   return messages;
 }
 
-// Handle parsed action blocks — validate, enrich, fire to n8n, update state
+// Handle parsed action blocks
 async function handleAction(callId, action, callState) {
   const { type, data } = action;
   if (!type || !data) return;
 
   log(callId, `Action detected: ${type}`);
 
-  // Update conversation state with collected data
   const updates = { intent: type.toLowerCase() };
   if (data.name) updates.callerName = data.name;
   if (data.phone) updates.callerPhone = data.phone;
@@ -236,7 +214,6 @@ async function handleAction(callId, action, callState) {
   if (type === 'HUMAN_TRANSFER') updates.handedOff = true;
   state.update(callId, updates);
 
-  // Validate and enrich via intentRouter
   const transcript = callState.transcript || [];
   const { isValid, missingFields, enrichedData } = classifyAndEnrich(transcript, action);
 
@@ -244,7 +221,6 @@ async function handleAction(callId, action, callState) {
     log(callId, `Action ${type} has missing fields: ${missingFields.join(', ')} — firing anyway with available data`);
   }
 
-  // Fire to n8n with standardized payload
   await n8n.fireWebhook(type, {
     call_id: callId,
     caller: enrichedData.caller,
