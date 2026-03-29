@@ -29,25 +29,35 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// HTTP POST fallback for Retell webhook (older versions)
+// HTTP POST fallback for Retell webhook
 app.use('/retell-webhook', retellHandler);
 
-// WebSocket server for Retell Custom LLM
-const wss = new WebSocketServer({ server, path: '/llm-websocket' });
+// WebSocket server — handle ALL paths (Retell appends call_id to the path)
+const wss = new WebSocketServer({ noServer: true });
+
 wss.on('connection', (ws, req) => {
-  console.log(`[WebSocket] New connection from ${req.socket.remoteAddress}`);
+  console.log(`[WebSocket] New connection on path: ${req.url}`);
   handleRetellWebSocket(ws);
 });
 
-// Also handle WebSocket on /retell-webhook path for flexibility
-const wss2 = new WebSocketServer({ server, path: '/retell-webhook' });
-wss2.on('connection', (ws, req) => {
-  console.log(`[WebSocket] New connection on /retell-webhook from ${req.socket.remoteAddress}`);
-  handleRetellWebSocket(ws);
+// Handle WebSocket upgrade manually to accept any path
+server.on('upgrade', (request, socket, head) => {
+  const pathname = request.url;
+  console.log(`[WebSocket] Upgrade request on path: ${pathname}`);
+
+  // Accept WebSocket connections on any path containing llm-websocket or retell-webhook
+  if (pathname.startsWith('/llm-websocket') || pathname.startsWith('/retell-webhook')) {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    console.log(`[WebSocket] Rejecting upgrade on unknown path: ${pathname}`);
+    socket.destroy();
+  }
 });
 
 server.listen(PORT, () => {
   console.log(`[electrical-voice-ai] ${COMPANY_NAME} voice server running on port ${PORT}`);
-  console.log(`[electrical-voice-ai] WebSocket endpoints: /llm-websocket and /retell-webhook`);
-  console.log(`[electrical-voice-ai] HTTP POST endpoint: /retell-webhook`);
+  console.log(`[electrical-voice-ai] WebSocket: /llm-websocket/* and /retell-webhook/*`);
+  console.log(`[electrical-voice-ai] HTTP POST: /retell-webhook`);
 });

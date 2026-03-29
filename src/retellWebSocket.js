@@ -20,28 +20,48 @@ function handleRetellWebSocket(ws) {
     try {
       const msg = JSON.parse(data.toString());
 
-      // First message from Retell contains config
+      // Extract call_id from any message type
+      callId = msg.call_id || msg.call?.call_id || callId || 'unknown';
+
+      log(callId, `Received: ${msg.interaction_type} (keys: ${Object.keys(msg).join(', ')})`);
+
+      // update_only — just a config update, no response needed
       if (msg.interaction_type === 'update_only') {
-        // Config/update message — extract call info
-        if (msg.call) {
-          callId = msg.call.call_id || callId;
-          log(callId || 'unknown', `Config update received`);
-        }
+        log(callId, 'Update only — no response needed');
         return;
       }
 
-      // Extract call_id from message
-      callId = msg.call_id || msg.call?.call_id || callId || 'unknown';
+      // ping — respond with pong to keep connection alive
+      if (msg.interaction_type === 'ping' || msg.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+        return;
+      }
 
-      // Handle call_ended
+      // call_ended
       if (msg.interaction_type === 'call_ended') {
         log(callId, 'Call ended');
         await handleCallEnded(callId, msg.transcript, msg.call);
         return;
       }
 
-      // Handle response_required and reminder_required
-      if (msg.interaction_type === 'response_required' || msg.interaction_type === 'reminder_required' || msg.interaction_type === 'call_details') {
+      // call_details — first message when call connects, send greeting
+      if (msg.interaction_type === 'call_details') {
+        callState = state.create(callId);
+        if (msg.call?.from_number) {
+          state.update(callId, { callerPhone: msg.call.from_number });
+        }
+        log(callId, `Call connected from ${msg.call?.from_number || 'unknown'}`);
+
+        // Send initial greeting immediately
+        const greeting = `Thank you for calling FES Electrical Services, this is Volt. How can I help you today?`;
+        sendResponse(ws, 0, greeting, false);
+        state.addTranscriptEntry(callId, 'agent', greeting);
+        log(callId, `Sent greeting`);
+        return;
+      }
+
+      // response_required and reminder_required — need AI response
+      if (msg.interaction_type === 'response_required' || msg.interaction_type === 'reminder_required') {
         // Get or create state
         if (!callState) {
           callState = state.create(callId);
