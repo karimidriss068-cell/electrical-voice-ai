@@ -12,6 +12,11 @@ app.use(express.json());
 
 // Health check
 app.get('/health', (_req, res) => {
+  // Show all env var NAMES (not values) to debug Railway variable injection
+  const allEnvKeys = Object.keys(process.env).filter(k =>
+    !k.startsWith('npm_') && !k.startsWith('_') && !k.startsWith('HOME') && !k.startsWith('PATH')
+  ).sort();
+
   res.json({
     status: 'ok',
     service: 'electrical-voice-ai',
@@ -21,7 +26,9 @@ app.get('/health', (_req, res) => {
       retell_key_set: !!process.env.RETELL_API_KEY,
       company: process.env.COMPANY_NAME || 'NOT SET',
       n8n_url_set: !!process.env.N8N_WEBHOOK_URL,
-    }
+      test_var: process.env.TEST_VAR || 'NOT SET',
+    },
+    env_keys: allEnvKeys,
   });
 });
 
