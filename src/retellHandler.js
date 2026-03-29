@@ -31,6 +31,11 @@ function verifyRetell(req, res, next) {
 
 router.use(verifyRetell);
 
+// GET /retell-webhook — health check for Retell URL verification
+router.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'retell-webhook', ready: true });
+});
+
 // POST /retell-webhook — main Retell LLM webhook endpoint
 router.post('/', async (req, res) => {
   const { call_id, interaction_type, transcript, call } = req.body;
