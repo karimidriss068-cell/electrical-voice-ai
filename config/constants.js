@@ -1,4 +1,13 @@
+// Load .env file if it exists (local dev) — won't override existing env vars on Railway
 require('dotenv').config();
+
+// Debug: log which env vars are present at startup
+console.log('[constants] ENV CHECK:', {
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? 'SET (' + process.env.ANTHROPIC_API_KEY.substring(0, 10) + '...)' : 'MISSING',
+  RETELL_API_KEY: process.env.RETELL_API_KEY ? 'SET' : 'MISSING',
+  COMPANY_NAME: process.env.COMPANY_NAME || 'MISSING',
+  N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL ? 'SET' : 'MISSING',
+});
 
 module.exports = {
   PORT: process.env.PORT || 3000,
@@ -6,10 +15,10 @@ module.exports = {
   N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL,
   N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
   RETELL_API_KEY: process.env.RETELL_API_KEY,
-  COMPANY_NAME: process.env.COMPANY_NAME || 'Volt Electrical Services',
-  COMPANY_PHONE: process.env.COMPANY_PHONE || '',
-  SERVICE_AREA: process.env.SERVICE_AREA || '',
-  EMERGENCY_PHONE: process.env.EMERGENCY_PHONE || '',
+  COMPANY_NAME: process.env.COMPANY_NAME || 'FES Electrical Services',
+  COMPANY_PHONE: process.env.COMPANY_PHONE || '9738786111',
+  SERVICE_AREA: process.env.SERVICE_AREA || 'Union County New Jersey and surrounding counties',
+  EMERGENCY_PHONE: process.env.EMERGENCY_PHONE || '9738786111',
 
   SERVICES: [
     { name: 'Panel Upgrades', description: 'Electrical panel replacement and upgrades' },
