@@ -121,7 +121,7 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
   let assistantText;
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
       max_tokens: 512,
       system: systemPrompt,
       messages,
@@ -133,13 +133,15 @@ async function handleResponseRequired(callId, interactionType, transcript, call,
       .join('');
   } catch (err) {
     console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Anthropic API error:`, err.message);
-    log(callId, 'Anthropic call failed — returning fallback response');
+    console.error(`[${new Date().toISOString()}] [retellHandler] [${callId}] Error details:`, err.status, err.error || '');
+    log(callId, `Anthropic call failed (${err.status || 'unknown'}): ${err.message}`);
 
     return res.json({
       response_id: ++responseCounter,
       content: "I'm sorry, I'm having a brief technical issue. Let me have someone call you right back.",
       content_complete: true,
       end_call: true,
+      _debug_error: err.message,
     });
   }
 
