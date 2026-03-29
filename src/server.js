@@ -12,7 +12,17 @@ app.use(express.json());
 
 // Health check
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'electrical-voice-ai', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    service: 'electrical-voice-ai',
+    timestamp: new Date().toISOString(),
+    config: {
+      anthropic_key_set: !!process.env.ANTHROPIC_API_KEY,
+      retell_key_set: !!process.env.RETELL_API_KEY,
+      company: process.env.COMPANY_NAME || 'NOT SET',
+      n8n_url_set: !!process.env.N8N_WEBHOOK_URL,
+    }
+  });
 });
 
 // Retell AI LLM webhook
