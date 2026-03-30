@@ -153,7 +153,7 @@ function buildMessages(systemPrompt, transcript, interactionType) {
     messages.push({ role: 'user', content: '[Call connected.]' });
   } else if (interactionType === 'reminder_required') {
     if (messages[messages.length - 1].role === 'assistant') {
-      messages.push({ role: 'user', content: '[Caller is quiet.]' });
+      messages.push({ role: 'user', content: '[Caller has gone quiet. Gently re-engage them naturally, like "Hey, you still there?" or "Take your time, no rush" or ask if they had any other questions. Keep it warm and casual.]' });
     }
   }
 

@@ -158,7 +158,7 @@ function buildMessages(systemPrompt, transcript, interactionType) {
   } else if (interactionType === 'reminder_required') {
     const lastRole = messages[messages.length - 1].role;
     if (lastRole === 'assistant') {
-      messages.push({ role: 'user', content: '[Caller is quiet. Check if they need something.]' });
+      messages.push({ role: 'user', content: '[Caller has gone quiet. Gently re-engage them naturally, like "Hey, you still there?" or "Take your time, no rush" or ask if they had any other questions. Keep it warm and casual.]' });
     }
   }
 
