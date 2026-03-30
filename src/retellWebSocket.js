@@ -1,4 +1,5 @@
 const OpenAI = require('openai');
+const { COMPANY_NAME } = require('../config/constants');
 const { getSystemPrompt } = require('../prompts/systemPrompt');
 const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
 const state = require('./conversationState');
@@ -6,156 +7,135 @@ const n8n = require('./n8nClient');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
-const ACTION_REGEX = /##ACTION:(.*?)##/s;
+// Pre-cache system prompt at startup
+let cachedSystemPrompt = null;
+
+function getOrCacheSystemPrompt() {
+  if (!cachedSystemPrompt) cachedSystemPrompt = getSystemPrompt();
+  return cachedSystemPrompt;
+}
 
 function log(callId, message) {
   console.log(`[${new Date().toISOString()}] [retellWS] [${callId}] ${message}`);
 }
 
+const { stripAndExtractAction } = require('./actionParser');
+
 function handleRetellWebSocket(ws) {
   let callId = null;
   let callState = null;
+  const companyName = COMPANY_NAME || 'FES Electrical Services';
+
+  // Pre-cache the system prompt for this connection
+  const systemPrompt = getOrCacheSystemPrompt();
 
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-
-      // Extract call_id from any message type
       callId = msg.call_id || msg.call?.call_id || callId || 'unknown';
 
-      log(callId, `Received: ${msg.interaction_type} (keys: ${Object.keys(msg).join(', ')})`);
+      if (msg.interaction_type === 'update_only') return;
 
-      // update_only — just a config update, no response needed
-      if (msg.interaction_type === 'update_only') {
-        log(callId, 'Update only — no response needed');
-        return;
-      }
-
-      // ping — respond with pong to keep connection alive
       if (msg.interaction_type === 'ping' || msg.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
         return;
       }
 
-      // call_ended
       if (msg.interaction_type === 'call_ended') {
         log(callId, 'Call ended');
-        await handleCallEnded(callId, msg.transcript, msg.call);
+        // Fire webhook in background, don't await
+        handleCallEnded(callId, msg.transcript, msg.call).catch(err =>
+          log(callId, `CALL_COMPLETE error: ${err.message}`)
+        );
         return;
       }
 
-      // call_details — first message when call connects, send greeting
+      // call_details — send short greeting
       if (msg.interaction_type === 'call_details') {
         callState = state.create(callId);
         if (msg.call?.from_number) {
           state.update(callId, { callerPhone: msg.call.from_number });
         }
-        log(callId, `Call connected from ${msg.call?.from_number || 'unknown'}`);
+        log(callId, `Call from ${msg.call?.from_number || 'unknown'}`);
 
-        // Send initial greeting immediately
-        const greeting = `Thank you for calling FES Electrical Services, this is Volt. How can I help you today?`;
+        const greeting = `${companyName}, this is Volt.`;
         sendResponse(ws, 0, greeting, false);
         state.addTranscriptEntry(callId, 'agent', greeting);
-        log(callId, `Sent greeting`);
         return;
       }
 
-      // response_required and reminder_required — need AI response
+      // response_required / reminder_required
       if (msg.interaction_type === 'response_required' || msg.interaction_type === 'reminder_required') {
-        // Get or create state
         if (!callState) {
           callState = state.create(callId);
           if (msg.call?.from_number) {
             state.update(callId, { callerPhone: msg.call.from_number });
           }
-          log(callId, `New call from ${msg.call?.from_number || 'unknown'}`);
         }
 
         const transcript = msg.transcript || [];
-        const interactionType = msg.interaction_type;
+        const messages = buildMessages(systemPrompt, transcript, msg.interaction_type);
 
-        log(callId, `${interactionType} — ${transcript.length} transcript entries`);
-
-        // Build OpenAI messages
-        const systemPrompt = getSystemPrompt();
-        const messages = buildMessages(systemPrompt, transcript, interactionType);
-
-        // Call OpenAI
         let assistantText;
         try {
           const response = await openai.chat.completions.create({
             model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-            max_tokens: 512,
+            max_tokens: 150,
+            temperature: 0.7,
             messages,
           });
           assistantText = response.choices[0]?.message?.content || '';
         } catch (err) {
           log(callId, `OpenAI error: ${err.message}`);
-          sendResponse(ws, msg.response_id, "I'm sorry, I'm having a brief technical issue. Let me have someone call you right back.", true);
+          sendResponse(ws, msg.response_id, "Technical issue on our end. Someone'll call you right back.", true);
           return;
         }
 
-        // Parse action block if present
-        let spokenResponse = assistantText;
-        let endCall = false;
-        const actionMatch = assistantText.match(ACTION_REGEX);
+        const { spokenResponse, actionData } = stripAndExtractAction(assistantText);
 
-        if (actionMatch) {
-          spokenResponse = assistantText.replace(ACTION_REGEX, '').trim();
-          try {
-            const action = JSON.parse(actionMatch[1]);
-            await handleAction(callId, action, callState);
-            if (action.type === 'HUMAN_TRANSFER') {
-              state.update(callId, { handedOff: true });
-            }
-          } catch (parseErr) {
-            log(callId, `Failed to parse action: ${parseErr.message}`);
-          }
+        // Fire n8n webhook in background — don't block the response
+        if (actionData && actionData.type && actionData.data) {
+          log(callId, `Action: ${actionData.type}`);
+          handleAction(callId, actionData, callState).catch(err =>
+            log(callId, `Action error: ${err.message}`)
+          );
         }
 
-        state.addTranscriptEntry(callId, 'agent', spokenResponse);
-        log(callId, `Response: "${spokenResponse.substring(0, 80)}..."`);
+        const finalResponse = spokenResponse || "How can I help you?";
+        state.addTranscriptEntry(callId, 'agent', finalResponse);
+        log(callId, `"${finalResponse.substring(0, 80)}"`);
 
-        sendResponse(ws, msg.response_id, spokenResponse, endCall);
+        sendResponse(ws, msg.response_id, finalResponse, false);
       }
     } catch (err) {
-      console.error(`[retellWS] Error processing message:`, err.message);
-      // Try to send a fallback response
+      console.error(`[retellWS] Error:`, err.message);
       try {
-        sendResponse(ws, 0, "I'm sorry, could you repeat that?", false);
-      } catch (e) {
-        // ws might be closed
-      }
+        sendResponse(ws, 0, "Sorry, could you say that again?", false);
+      } catch (e) {}
     }
   });
 
   ws.on('close', () => {
-    log(callId || 'unknown', 'WebSocket closed');
-    if (callId) {
-      setTimeout(() => state.remove(callId), 5 * 60 * 1000);
-    }
+    log(callId || 'unknown', 'WS closed');
+    if (callId) setTimeout(() => state.remove(callId), 5 * 60 * 1000);
   });
 
   ws.on('error', (err) => {
-    log(callId || 'unknown', `WebSocket error: ${err.message}`);
+    log(callId || 'unknown', `WS error: ${err.message}`);
   });
 }
 
-// Send response back to Retell via WebSocket
 function sendResponse(ws, responseId, content, endCall) {
-  const response = {
-    response_id: responseId || 0,
-    content: content,
-    content_complete: true,
-    end_call: endCall || false,
-  };
-
   if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(response));
+    ws.send(JSON.stringify({
+      response_id: responseId || 0,
+      content,
+      content_complete: true,
+      end_call: endCall || false,
+    }));
   }
 }
 
-// Build OpenAI messages from transcript
 function buildMessages(systemPrompt, transcript, interactionType) {
   const messages = [{ role: 'system', content: systemPrompt }];
 
@@ -174,18 +154,17 @@ function buildMessages(systemPrompt, transcript, interactionType) {
   }
 
   if (messages.length === 1) {
-    messages.push({ role: 'user', content: '[Call connected. Greet the caller.]' });
+    messages.push({ role: 'user', content: '[Call connected.]' });
   } else if (interactionType === 'reminder_required') {
     const lastRole = messages[messages.length - 1].role;
     if (lastRole === 'assistant') {
-      messages.push({ role: 'user', content: '[Caller is silent. Gently check if they are still there or need help.]' });
+      messages.push({ role: 'user', content: '[Caller is quiet. Check if they need something.]' });
     }
   }
 
   return messages;
 }
 
-// Handle call ended
 async function handleCallEnded(callId, transcript, call) {
   const callState = state.get(callId);
   const rawTranscript = formatTranscript(transcript || callState?.transcript || []);
@@ -206,15 +185,12 @@ async function handleCallEnded(callId, transcript, call) {
     raw_transcript: rawTranscript,
   });
 
-  log(callId, `Fired CALL_COMPLETE — intent: ${callState?.intent}`);
+  log(callId, `CALL_COMPLETE fired`);
 }
 
-// Handle action blocks from AI response
 async function handleAction(callId, action, callState) {
   const { type, data } = action;
   if (!type || !data) return;
-
-  log(callId, `Action detected: ${type}`);
 
   const updates = { intent: type.toLowerCase() };
   if (data.name) updates.callerName = data.name;
@@ -227,11 +203,7 @@ async function handleAction(callId, action, callState) {
   state.update(callId, updates);
 
   const transcript = callState.transcript || [];
-  const { isValid, missingFields, enrichedData } = classifyAndEnrich(transcript, action);
-
-  if (!isValid) {
-    log(callId, `Missing fields: ${missingFields.join(', ')} — firing anyway`);
-  }
+  const { enrichedData } = classifyAndEnrich(transcript, action);
 
   await n8n.fireWebhook(type, {
     call_id: callId,
@@ -240,7 +212,7 @@ async function handleAction(callId, action, callState) {
     raw_transcript: enrichedData.raw_transcript,
   });
 
-  log(callId, `Fired ${type} webhook`);
+  log(callId, `${type} webhook fired`);
 }
 
 module.exports = { handleRetellWebSocket };
