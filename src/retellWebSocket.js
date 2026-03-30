@@ -58,7 +58,7 @@ function handleRetellWebSocket(ws) {
         }
         log(callId, `Call from ${msg.call?.from_number || 'unknown'}`);
 
-        const greeting = `${companyName}, this is Volt.`;
+        const greeting = `Hey, thanks for calling ${companyName}, this is Volt. What can I help you with?`;
         sendResponse(ws, 0, greeting, false);
         state.addTranscriptEntry(callId, 'agent', greeting);
         return;
@@ -80,8 +80,8 @@ function handleRetellWebSocket(ws) {
         try {
           const response = await openai.chat.completions.create({
             model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-            max_tokens: 150,
-            temperature: 0.7,
+            max_tokens: 200,
+            temperature: 0.85,
             messages,
           });
           assistantText = response.choices[0]?.message?.content || '';
