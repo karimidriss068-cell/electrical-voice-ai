@@ -31,6 +31,11 @@ app.get('/api/dashboard', (req, res) => {
   });
 });
 
+// Demo page shortcut
+app.get('/demo', (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'));
+});
+
 // Health check
 app.get('/health', (_req, res) => {
   res.json({

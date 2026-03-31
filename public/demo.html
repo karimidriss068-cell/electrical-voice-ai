@@ -215,7 +215,9 @@
 
   <script>
     const AGENT_ID = 'agent_5216a50fbfdb5a251bd104dbda';
-    const API_BASE = window.location.origin;
+    const API_BASE = (window.location.hostname === 'localhost' || window.location.protocol === 'file:')
+      ? 'https://gracious-reflection-production.up.railway.app'
+      : window.location.origin;
 
     let retellClient = null;
     let callActive   = false;
