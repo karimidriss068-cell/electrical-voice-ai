@@ -202,16 +202,17 @@ function handleRetellWebSocket(ws) {
           return;
         }
 
-        // Soft stop: caller signals done + action already fired → end if Volt is closing
+        // Soft stop: caller signals done + action already fired → end the call
         const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
         const actionWasFired = savedState?.intent;
-        if (callerIsDone && actionWasFired && assistantText) {
-          const isClosing = /\b(take care|have a great|thanks for calling|all set|you're set|we'll|someone will|team will|reach out|call you back|bye|goodbye|great day|good day)\b/i.test(assistantText);
-          if (isClosing) {
-            log(callId, `Soft end_call — caller done + action fired + closing`);
-            sendResponse(ws, msg.response_id, assistantText, true);
-            return;
-          }
+        if (callerIsDone && actionWasFired) {
+          // Force a closing — don't wait for Volt to decide
+          const closing = (assistantText && !/is there anything else/i.test(assistantText))
+            ? assistantText
+            : "You're all set. Thanks for calling, take care!";
+          log(callId, `Soft end_call — caller done + action fired`);
+          sendResponse(ws, msg.response_id, closing, true);
+          return;
         }
 
         const finalResponse = assistantText || "Is there anything else I can help you with?";

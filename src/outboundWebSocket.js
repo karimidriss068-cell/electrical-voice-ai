@@ -197,13 +197,13 @@ function handleOutboundWebSocket(ws) {
           return;
         }
         const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
-        if (callerIsDone && assistantText) {
-          const isClosing = /\b(take care|have a great|thanks for|all set|you're set|we'll|someone will|team will|reach out|call you back|bye|goodbye|great day)\b/i.test(assistantText);
-          if (isClosing) {
-            log(callId, `Soft end_call — caller done + closing`);
-            sendResponse(ws, msg.response_id, assistantText, true);
-            return;
-          }
+        if (callerIsDone) {
+          const closing = (assistantText && !/is there anything else/i.test(assistantText))
+            ? assistantText
+            : "Thanks for your time. Have a great day!";
+          log(callId, `Soft end_call — caller done`);
+          sendResponse(ws, msg.response_id, closing, true);
+          return;
         }
 
         const finalResponse = assistantText || "Is there anything else I can help you with?";
