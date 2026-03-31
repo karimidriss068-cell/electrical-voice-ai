@@ -165,6 +165,14 @@ function handleOutboundWebSocket(ws) {
           return;
         }
 
+        // Handle end_call — say goodbye and hang up
+        if (actionData?.type === 'END_CALL') {
+          const goodbye = actionData.data?.closing_message || "Thanks for your time. Have a great day!";
+          log(callId, `END_CALL — "${goodbye}"`);
+          sendResponse(ws, msg.response_id, goodbye, true);
+          return;
+        }
+
         if (actionData?.type && actionData?.data) {
           n8n.fireWebhook(actionData.type, {
             call_id: callId,
