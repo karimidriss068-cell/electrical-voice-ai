@@ -189,17 +189,26 @@ function handleRetellWebSocket(ws) {
           );
         }
 
-        // Programmatic end detection — don't rely solely on GPT-4o calling end_call
+        // Programmatic end detection — force hang up, don't rely on GPT-4o
         const savedState = state.get(callId);
         const lastUserMsg = (transcript[transcript.length - 1]?.content || '').toLowerCase().trim();
-        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|bye|goodbye|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
-        const actionWasFired = savedState?.intent;
 
+        // Hard stop: caller explicitly says bye/goodbye → end immediately
+        const callerSaidBye = /\b(bye|goodbye|bye bye|good bye|take care|have a good|have a great|talk later|gotta go)\b/.test(lastUserMsg);
+        if (callerSaidBye) {
+          const goodbye = assistantText || "Take care! Bye!";
+          log(callId, `Hard end_call — caller said bye`);
+          sendResponse(ws, msg.response_id, goodbye, true);
+          return;
+        }
+
+        // Soft stop: caller signals done + action already fired → end if Volt is closing
+        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
+        const actionWasFired = savedState?.intent;
         if (callerIsDone && actionWasFired && assistantText) {
-          // Check if the assistant response is a closing — if so, end the call
-          const isClosing = /\b(take care|have a great|thanks for calling|all set|you're set|we'll take care|someone will|team will|reach out|call you back|bye|goodbye)\b/i.test(assistantText);
+          const isClosing = /\b(take care|have a great|thanks for calling|all set|you're set|we'll|someone will|team will|reach out|call you back|bye|goodbye|great day|good day)\b/i.test(assistantText);
           if (isClosing) {
-            log(callId, `Auto end_call — caller done, action fired, closing detected`);
+            log(callId, `Soft end_call — caller done + action fired + closing`);
             sendResponse(ws, msg.response_id, assistantText, true);
             return;
           }
