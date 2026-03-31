@@ -40,8 +40,22 @@ function handleRetellWebSocket(ws) {
   let tenant = null;
   let systemPrompt = null;
   let hasGreeted = false;
+  let callEnded = false;
+  let actionFiredLocally = false;
+
+  function endCall(responseId, message) {
+    if (callEnded) return;
+    callEnded = true;
+    log(callId, `ENDING CALL — "${message.substring(0, 60)}"`);
+    sendResponse(ws, responseId, message, true);
+    // Force close WS after short delay in case Retell ignores end_call flag
+    setTimeout(() => {
+      if (ws.readyState === ws.OPEN) ws.close();
+    }, 2000);
+  }
 
   ws.on('message', async (data) => {
+    if (callEnded) return; // Ignore all messages after call is ended
     try {
       const msg = JSON.parse(data.toString());
       callId = msg.call_id || msg.call?.call_id || msg.call?.id || callId || 'unknown';
@@ -183,20 +197,19 @@ function handleRetellWebSocket(ws) {
           }
         } catch (err) {
           log(callId, `OpenAI error: ${err.message}`);
-          sendResponse(ws, msg.response_id, "Technical issue on our end. Someone'll call you right back.", true);
+          endCall(msg.response_id, "Technical issue on our end. Someone from F-E-S will call you right back.");
           return;
         }
 
         // Handle end_call function — say goodbye and hang up
         if (actionData?.type === 'END_CALL') {
-          const goodbye = actionData.data?.closing_message || "Thanks for calling. Take care!";
-          log(callId, `END_CALL — "${goodbye}"`);
-          sendResponse(ws, msg.response_id, goodbye, true);
+          endCall(msg.response_id, actionData.data?.closing_message || "Thanks for calling F-E-S Electrical Services. Take care!");
           return;
         }
 
-        // Fire n8n webhook in background — don't block the response
-        if (actionData && actionData.type && actionData.data) {
+        // Fire n8n webhook in background — only once per call
+        if (actionData && actionData.type && actionData.data && !actionFiredLocally) {
+          actionFiredLocally = true;
           log(callId, `Action: ${actionData.type}`);
           handleAction(callId, actionData, callState, tenant).catch(err =>
             log(callId, `Action error: ${err.message}`)
@@ -208,12 +221,10 @@ function handleRetellWebSocket(ws) {
         // Always find the last USER message (not agent) in transcript
         const lastUserMsg = ([...transcript].reverse().find(t => t.role === 'user')?.content || '').toLowerCase().trim();
 
-        // Hard stop: caller explicitly says bye/goodbye → end immediately
+        // Hard stop: caller says bye → end immediately
         const callerSaidBye = /\b(bye|goodbye|bye bye|good bye|take care|have a good|have a great|talk later|gotta go)\b/.test(lastUserMsg);
         if (callerSaidBye) {
-          const goodbye = assistantText || "Take care! Bye!";
-          log(callId, `Hard end_call — caller said bye`);
-          sendResponse(ws, msg.response_id, goodbye, true);
+          endCall(msg.response_id, assistantText || "Take care! Thanks for calling F-E-S Electrical Services!");
           return;
         }
 
@@ -222,14 +233,10 @@ function handleRetellWebSocket(ws) {
         const actionWasFired = savedState?.current_intent || savedState?.action_fired;
 
         if (callerIsDone && actionWasFired) {
-          // If Volt's response is asking "anything else" — let it ask once, don't end yet
           if (/is there anything else|anything else i can|anything else for you/i.test(assistantText)) {
-            // Let it ask — next response will end
+            // Volt is asking "anything else?" — let it, but next response will end
           } else {
-            // Volt said something other than "anything else" — this is the close, end the call
-            const closing = assistantText || "You're all set. Thanks for calling F-E-S Electrical Services, take care!";
-            log(callId, `Soft end_call — caller done + action fired (intent: ${savedState?.current_intent})`);
-            sendResponse(ws, msg.response_id, closing, true);
+            endCall(msg.response_id, assistantText || "You're all set. Thanks for calling F-E-S Electrical Services, take care!");
             return;
           }
         }
