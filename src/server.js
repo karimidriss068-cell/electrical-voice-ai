@@ -9,6 +9,7 @@ const { PORT, COMPANY_NAME } = require('../config/constants');
 const retellHandler = require('./retellHandler');
 const { handleRetellWebSocket } = require('./retellWebSocket');
 const callLog = require('./callLog');
+const { triggerOutboundCall, CALL_TYPES } = require('./outboundCaller');
 
 const app = express();
 const server = http.createServer(app);
@@ -42,6 +43,28 @@ app.get('/health', (_req, res) => {
       company: process.env.COMPANY_NAME || 'NOT SET',
     },
   });
+});
+
+// Outbound call trigger
+// POST /api/outbound-call { toNumber, callType, customerData }
+// callType options: APPOINTMENT_REMINDER | JOB_FOLLOWUP | QUOTE_FOLLOWUP | EMERGENCY_FOLLOWUP | LEAD_NURTURE | PAYMENT_REMINDER
+app.post('/api/outbound-call', async (req, res) => {
+  const { toNumber, callType, customerData } = req.body;
+  if (!toNumber || !callType) {
+    return res.status(400).json({ error: 'toNumber and callType are required' });
+  }
+  try {
+    const result = await triggerOutboundCall({ toNumber, callType, customerData: customerData || {} });
+    res.json({ success: true, call_id: result.call_id, call_type: callType });
+  } catch (err) {
+    console.error('[outbound-call]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List available outbound call types
+app.get('/api/outbound-call/types', (_req, res) => {
+  res.json({ call_types: Object.keys(CALL_TYPES) });
 });
 
 // HTTP POST fallback for Retell webhook

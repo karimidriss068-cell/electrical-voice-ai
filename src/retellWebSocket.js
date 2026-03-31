@@ -1,6 +1,7 @@
 const OpenAI = require('openai');
 const { COMPANY_NAME } = require('../config/constants');
 const { getSystemPrompt, getSystemPromptForTenant } = require('../prompts/systemPrompt');
+const { getOutboundSystemPrompt, getOutboundOpener } = require('../prompts/outboundPrompt');
 const { getTenant } = require('../config/tenants');
 const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
 const state = require('./conversationState');
@@ -59,24 +60,42 @@ function handleRetellWebSocket(ws) {
         return;
       }
 
-      // call_details — send short greeting
+      // call_details — send greeting (inbound) or outbound opener
       if (msg.interaction_type === 'call_details') {
         callState = state.create(callId);
+
+        // Detect outbound call type from metadata
+        const meta = msg.call?.metadata || {};
+        const isOutbound = meta.outbound === true;
+        const outboundCallType = meta.call_type || null;
+        const customerData = meta.customer_data || {};
 
         // Resolve tenant from to_number (the number the caller dialed)
         const toNumber = msg.call?.to_number || null;
         tenant = getTenant(toNumber);
-        systemPrompt = getSystemPromptForTenant(tenant);
 
-        if (msg.call?.from_number) {
-          state.update(callId, { callerPhone: msg.call.from_number });
+        if (isOutbound && outboundCallType) {
+          // Outbound: use outbound-specific prompt
+          systemPrompt = getOutboundSystemPrompt(outboundCallType, customerData, tenant.company_name);
+          state.update(callId, { tenant, outbound: true, outboundCallType, customerData });
+          log(callId, `Outbound ${outboundCallType} call to ${toNumber}`);
+
+          const opener = getOutboundOpener(outboundCallType, customerData, tenant.company_name);
+          sendResponse(ws, 0, opener, false);
+          state.addTranscriptEntry(callId, 'agent', opener);
+        } else {
+          // Inbound: normal greeting
+          systemPrompt = getSystemPromptForTenant(tenant);
+          if (msg.call?.from_number) {
+            state.update(callId, { callerPhone: msg.call.from_number });
+          }
+          state.update(callId, { tenant });
+          log(callId, `Inbound call from ${msg.call?.from_number || 'unknown'} to ${toNumber || 'unknown'} — tenant: ${tenant.id}`);
+
+          const greeting = `Hey, thanks for calling ${tenant.company_name}, this is Volt. What can I help you with?`;
+          sendResponse(ws, 0, greeting, false);
+          state.addTranscriptEntry(callId, 'agent', greeting);
         }
-        state.update(callId, { tenant });
-        log(callId, `Call from ${msg.call?.from_number || 'unknown'} to ${toNumber || 'unknown'} — tenant: ${tenant.id}`);
-
-        const greeting = `Hey, thanks for calling ${tenant.company_name}, this is Volt. What can I help you with?`;
-        sendResponse(ws, 0, greeting, false);
-        state.addTranscriptEntry(callId, 'agent', greeting);
         return;
       }
 
@@ -93,7 +112,12 @@ function handleRetellWebSocket(ws) {
         if (!tenant) {
           const toNumber = msg.call?.to_number || null;
           tenant = getTenant(toNumber);
-          systemPrompt = getSystemPromptForTenant(tenant);
+          const savedState = state.get(callId);
+          if (savedState?.outbound && savedState?.outboundCallType) {
+            systemPrompt = getOutboundSystemPrompt(savedState.outboundCallType, savedState.customerData || {}, tenant.company_name);
+          } else {
+            systemPrompt = getSystemPromptForTenant(tenant);
+          }
           state.update(callId, { tenant });
         }
 
