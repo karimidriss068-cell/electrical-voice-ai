@@ -206,17 +206,33 @@
 
   </main>
 
-  <!-- Retell Web SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/retell-client-js-sdk@latest/dist/index.umd.js"></script>
+  <script type="module">
+    import { RetellWebClient } from 'https://esm.sh/retell-client-js-sdk@latest';
+    window.RetellWebClient = RetellWebClient;
+    // Signal that SDK is ready
+    window.dispatchEvent(new Event('sdk-ready'));
+  </script>
 
   <script>
-    const AGENT_ID   = 'agent_5216a50fbfdb5a251bd104dbda';
-    const API_BASE   = window.location.origin; // same server
+    const AGENT_ID = 'agent_5216a50fbfdb5a251bd104dbda';
+    const API_BASE = window.location.origin;
 
     let retellClient = null;
     let callActive   = false;
     let timerInterval = null;
     let seconds = 0;
+    let sdkReady = false;
+
+    // Wait for SDK module to load before enabling button
+    window.addEventListener('sdk-ready', () => {
+      sdkReady = true;
+      setStatus('idle', 'Tap to call Volt');
+    });
+
+    // Timeout fallback in case esm.sh is slow
+    setTimeout(() => {
+      if (!sdkReady) setStatus('idle', 'Tap to call Volt');
+    }, 5000);
 
     // ── UI helpers ────────────────────────────────────────────────────────────
     function setStatus(state, text) {
@@ -304,6 +320,11 @@
     }
 
     async function startCall() {
+      if (!window.RetellWebClient) {
+        setStatus('idle', 'Still loading SDK — try again in 2 seconds');
+        return;
+      }
+
       setButtonState('loading');
       setStatus('loading', 'Connecting...');
 
