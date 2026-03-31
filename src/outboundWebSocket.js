@@ -188,7 +188,7 @@ function handleOutboundWebSocket(ws) {
         }
 
         // Programmatic end detection
-        const lastUserMsg = (transcript[transcript.length - 1]?.content || '').toLowerCase().trim();
+        const lastUserMsg = ([...transcript].reverse().find(t => t.role === 'user')?.content || '').toLowerCase().trim();
         const callerSaidBye = /\b(bye|goodbye|bye bye|good bye|take care|have a good|have a great|talk later|gotta go)\b/.test(lastUserMsg);
         if (callerSaidBye) {
           const goodbye = assistantText || "Take care! Bye!";

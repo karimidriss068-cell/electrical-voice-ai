@@ -191,7 +191,8 @@ function handleRetellWebSocket(ws) {
 
         // Programmatic end detection — force hang up, don't rely on GPT-4o
         const savedState = state.get(callId);
-        const lastUserMsg = (transcript[transcript.length - 1]?.content || '').toLowerCase().trim();
+        // Always find the last USER message (not agent) in transcript
+        const lastUserMsg = ([...transcript].reverse().find(t => t.role === 'user')?.content || '').toLowerCase().trim();
 
         // Hard stop: caller explicitly says bye/goodbye → end immediately
         const callerSaidBye = /\b(bye|goodbye|bye bye|good bye|take care|have a good|have a great|talk later|gotta go)\b/.test(lastUserMsg);
@@ -203,14 +204,14 @@ function handleRetellWebSocket(ws) {
         }
 
         // Soft stop: caller signals done + action already fired → end the call
-        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
-        const actionWasFired = savedState?.intent;
+        // NOTE: state stores intent as current_intent
+        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome|nothing else|all good)\b/.test(lastUserMsg);
+        const actionWasFired = savedState?.current_intent || savedState?.action_fired;
         if (callerIsDone && actionWasFired) {
-          // Force a closing — don't wait for Volt to decide
           const closing = (assistantText && !/is there anything else/i.test(assistantText))
             ? assistantText
             : "You're all set. Thanks for calling, take care!";
-          log(callId, `Soft end_call — caller done + action fired`);
+          log(callId, `Soft end_call — caller done + action fired (intent: ${savedState?.current_intent})`);
           sendResponse(ws, msg.response_id, closing, true);
           return;
         }
