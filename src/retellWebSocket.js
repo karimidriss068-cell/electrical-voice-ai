@@ -64,11 +64,15 @@ function handleRetellWebSocket(ws) {
       if (msg.interaction_type === 'call_details') {
         callState = state.create(callId);
 
-        // Detect outbound call type from metadata
+        // Detect outbound call type from metadata OR dynamic variables (for simulator testing)
         const meta = msg.call?.metadata || {};
-        const isOutbound = meta.outbound === true;
-        const outboundCallType = meta.call_type || null;
-        const customerData = meta.customer_data || {};
+        const dynVars = msg.call?.retell_llm_dynamic_variables || {};
+        const isOutbound = meta.outbound === true || dynVars.outbound === 'true';
+        const outboundCallType = meta.call_type || dynVars.call_type || null;
+        let customerData = meta.customer_data || {};
+        if (dynVars.customer_data) {
+          try { customerData = JSON.parse(dynVars.customer_data); } catch {}
+        }
 
         // Resolve tenant from to_number (the number the caller dialed)
         const toNumber = msg.call?.to_number || null;
