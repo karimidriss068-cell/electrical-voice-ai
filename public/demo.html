@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Volt AI — Voice Demo | FES Electrical Services</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    body { background: #030712; }
+
+    .glow-yellow { box-shadow: 0 0 40px rgba(234,179,8,0.25); }
+    .glow-green  { box-shadow: 0 0 40px rgba(34,197,94,0.3);  }
+    .glow-red    { box-shadow: 0 0 40px rgba(239,68,68,0.3);  }
+
+    /* Ripple rings */
+    .ring {
+      position: absolute;
+      inset: -20px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(234,179,8,0.25);
+      animation: ringPulse 2.5s ease-out infinite;
+      opacity: 0;
+    }
+    .ring:nth-child(2) { animation-delay: 0.6s; inset: -40px; }
+    .ring:nth-child(3) { animation-delay: 1.2s; inset: -60px; }
+    @keyframes ringPulse {
+      0%   { transform: scale(0.85); opacity: 0.7; }
+      100% { transform: scale(1.15); opacity: 0; }
+    }
+    .rings-active .ring { animation-play-state: running; }
+    .rings-idle    .ring { animation-play-state: paused; opacity: 0; }
+
+    /* Mic wave bars */
+    .wave-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: #22c55e;
+      animation: waveAnim 0.8s ease-in-out infinite alternate;
+    }
+    .wave-bar:nth-child(1) { animation-delay: 0.0s; }
+    .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.1s; }
+    .wave-bar:nth-child(5) { animation-delay: 0.0s; }
+    @keyframes waveAnim {
+      from { height: 6px; }
+      to   { height: 24px; }
+    }
+
+    /* Transcript */
+    #transcript { max-height: 260px; overflow-y: auto; scroll-behavior: smooth; }
+    #transcript::-webkit-scrollbar { width: 4px; }
+    #transcript::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+
+    .msg-agent { background: #1f2937; border-left: 3px solid #eab308; }
+    .msg-user  { background: #111827; border-left: 3px solid #3b82f6; }
+
+    .btn-call {
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+      outline: none;
+    }
+    .btn-call:active { transform: scale(0.96); }
+    .btn-call:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-idle    { background: #4b5563; }
+    .dot-loading { background: #eab308; animation: blink 1s infinite; }
+    .dot-active  { background: #22c55e; animation: blink 2s infinite; }
+    .dot-ended   { background: #6b7280; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 10px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+    }
+    .badge-live  { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-ai    { background: rgba(234,179,8,0.1);  color: #eab308; border: 1px solid rgba(234,179,8,0.25); }
+    .badge-demo  { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); }
+
+    /* Background grid */
+    .grid-bg {
+      background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    #call-timer { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="min-h-screen text-gray-100 grid-bg">
+
+  <!-- Header -->
+  <header class="border-b border-gray-800/80 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center font-black text-gray-900 text-base shadow-lg">
+        V
+      </div>
+      <div>
+        <p class="text-sm font-semibold text-gray-100 leading-none">Volt AI</p>
+        <p class="text-xs text-gray-500 leading-none mt-0.5">FES Electrical Services</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="badge badge-ai">AI Receptionist</span>
+      <span class="badge badge-demo">Live Demo</span>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-6 py-10 space-y-8">
+
+    <!-- Hero -->
+    <div class="text-center space-y-3">
+      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+        Talk to <span class="text-yellow-400">Volt</span>
+      </h1>
+      <p class="text-gray-400 text-base max-w-md mx-auto">
+        Volt is our AI receptionist — available 24/7 to book jobs, handle quotes, and dispatch emergencies.
+        Click the button and have a real conversation.
+      </p>
+    </div>
+
+    <!-- Call Widget -->
+    <div class="relative flex flex-col items-center gap-8">
+
+      <!-- Ripple + Button -->
+      <div class="relative flex items-center justify-center" style="width:180px;height:180px;">
+        <!-- Rings (show when active) -->
+        <div id="rings" class="rings-idle" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+          <div class="ring"></div>
+          <div class="ring"></div>
+          <div class="ring"></div>
+        </div>
+
+        <!-- Button -->
+        <button
+          id="call-btn"
+          class="btn-call relative z-10 w-28 h-28 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 glow-yellow flex items-center justify-center"
+          onclick="toggleCall()"
+        >
+          <!-- Phone icon (idle) -->
+          <svg id="icon-phone" class="w-12 h-12 text-gray-900" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24 11.36 11.36 0 003.56.57 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.45.57 3.57a1 1 0 01-.25 1.01l-2.2 2.21z"/>
+          </svg>
+          <!-- End icon (active) -->
+          <svg id="icon-end" class="w-12 h-12 text-white hidden" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M17.71 7.29a1 1 0 00-1.42 0L12 11.59l-4.29-4.3a1 1 0 10-1.42 1.42L10.59 13l-4.3 4.29a1 1 0 001.42 1.42L12 14.41l4.29 4.3a1 1 0 001.42-1.42L13.41 13l4.3-4.29a1 1 0 000-1.42z"/>
+          </svg>
+          <!-- Spinner (loading) -->
+          <svg id="icon-loading" class="w-10 h-10 text-gray-900 hidden animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Status line -->
+      <div class="flex items-center gap-2">
+        <span id="status-dot" class="status-dot dot-idle"></span>
+        <span id="status-text" class="text-sm text-gray-400">Tap to call Volt</span>
+        <span id="call-timer" class="text-sm text-gray-500 hidden"></span>
+      </div>
+
+      <!-- Audio wave (shown when speaking) -->
+      <div id="audio-wave" class="hidden items-center gap-1 h-8">
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+      </div>
+    </div>
+
+    <!-- Transcript Card -->
+    <div id="transcript-card" class="rounded-2xl border border-gray-800 overflow-hidden hidden">
+      <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-900/50">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Live Transcript</span>
+        <span id="live-badge" class="badge badge-live hidden">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
+          Live
+        </span>
+      </div>
+      <div id="transcript" class="p-4 space-y-2 bg-gray-900/30">
+        <!-- Messages injected here -->
+      </div>
+    </div>
+
+    <!-- Feature Pills -->
+    <div class="flex flex-wrap justify-center gap-2 text-xs text-gray-500">
+      <span class="bg-gray-900 border border-gray-800 rounded-full px-3 py-1">📅 Book appointments</span>
+      <span class="bg-gray-900 border border-gray-800 rounded-full px-3 py-1">💡 Request quotes</span>
+      <span class="bg-gray-900 border border-gray-800 rounded-full px-3 py-1">🚨 Dispatch emergencies</span>
+      <span class="bg-gray-900 border border-gray-800 rounded-full px-3 py-1">🔍 Check job status</span>
+      <span class="bg-gray-900 border border-gray-800 rounded-full px-3 py-1">🔁 Transfer to human</span>
+    </div>
+
+    <!-- Info note -->
+    <p class="text-center text-xs text-gray-600">
+      This is a live AI call — Volt will respond in real time.<br>
+      Make sure your microphone is allowed. Works best on Chrome or Safari.
+    </p>
+
+  </main>
+
+  <!-- Retell Web SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/retell-client-js-sdk@latest/dist/index.umd.js"></script>
+
+  <script>
+    const AGENT_ID   = 'agent_5216a50fbfdb5a251bd104dbda';
+    const API_BASE   = window.location.origin; // same server
+
+    let retellClient = null;
+    let callActive   = false;
+    let timerInterval = null;
+    let seconds = 0;
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    function setStatus(state, text) {
+      const dot  = document.getElementById('status-dot');
+      const txt  = document.getElementById('status-text');
+      dot.className = `status-dot dot-${state}`;
+      txt.textContent = text;
+    }
+
+    function setButtonState(state) {
+      const btn     = document.getElementById('call-btn');
+      const phone   = document.getElementById('icon-phone');
+      const end     = document.getElementById('icon-end');
+      const loading = document.getElementById('icon-loading');
+      const rings   = document.getElementById('rings');
+      const wave    = document.getElementById('audio-wave');
+
+      if (state === 'idle') {
+        btn.className = 'btn-call relative z-10 w-28 h-28 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 glow-yellow flex items-center justify-center';
+        phone.classList.remove('hidden'); end.classList.add('hidden'); loading.classList.add('hidden');
+        rings.className = 'rings-idle'; wave.classList.add('hidden'); wave.classList.remove('flex');
+        btn.disabled = false;
+      } else if (state === 'loading') {
+        btn.className = 'btn-call relative z-10 w-28 h-28 rounded-full bg-gray-700 flex items-center justify-center';
+        phone.classList.add('hidden'); end.classList.add('hidden'); loading.classList.remove('hidden');
+        rings.className = 'rings-idle'; wave.classList.add('hidden'); wave.classList.remove('flex');
+        btn.disabled = true;
+      } else if (state === 'active') {
+        btn.className = 'btn-call relative z-10 w-28 h-28 rounded-full bg-red-600 glow-red flex items-center justify-center';
+        phone.classList.add('hidden'); end.classList.remove('hidden'); loading.classList.add('hidden');
+        rings.className = 'rings-active'; wave.classList.remove('hidden'); wave.classList.add('flex');
+        btn.disabled = false;
+      }
+    }
+
+    function startTimer() {
+      seconds = 0;
+      const el = document.getElementById('call-timer');
+      el.classList.remove('hidden');
+      timerInterval = setInterval(() => {
+        seconds++;
+        const m = String(Math.floor(seconds/60)).padStart(2,'0');
+        const s = String(seconds % 60).padStart(2,'0');
+        el.textContent = `${m}:${s}`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      document.getElementById('call-timer').classList.add('hidden');
+    }
+
+    function showTranscript() {
+      const card = document.getElementById('transcript-card');
+      card.classList.remove('hidden');
+      document.getElementById('live-badge').classList.remove('hidden');
+    }
+
+    function hideTranscriptLive() {
+      document.getElementById('live-badge').classList.add('hidden');
+    }
+
+    function addMessage(role, text) {
+      const el = document.getElementById('transcript');
+      const div = document.createElement('div');
+      div.className = `msg-${role} rounded-lg px-3 py-2 text-sm`;
+      div.innerHTML = `<span class="text-xs font-semibold ${role === 'agent' ? 'text-yellow-500' : 'text-blue-400'} mr-2">${role === 'agent' ? 'Volt' : 'You'}</span><span class="text-gray-300">${escHtml(text)}</span>`;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // ── Call logic ────────────────────────────────────────────────────────────
+    async function toggleCall() {
+      if (callActive) {
+        endCall();
+      } else {
+        await startCall();
+      }
+    }
+
+    async function startCall() {
+      setButtonState('loading');
+      setStatus('loading', 'Connecting...');
+
+      try {
+        // 1. Get access token from our backend
+        const res = await fetch(`${API_BASE}/api/create-web-call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: AGENT_ID }),
+        });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        const { access_token } = await res.json();
+        if (!access_token) throw new Error('No access token returned');
+
+        // 2. Start Retell web call
+        retellClient = new RetellWebClient();
+
+        retellClient.on('call_started', () => {
+          callActive = true;
+          setButtonState('active');
+          setStatus('active', 'Connected to Volt');
+          startTimer();
+          showTranscript();
+        });
+
+        retellClient.on('call_ended', () => {
+          callActive = false;
+          setButtonState('idle');
+          setStatus('ended', 'Call ended');
+          stopTimer();
+          hideTranscriptLive();
+        });
+
+        retellClient.on('error', (err) => {
+          console.error('Retell error:', err);
+          callActive = false;
+          setButtonState('idle');
+          setStatus('idle', 'Error — try again');
+          stopTimer();
+        });
+
+        retellClient.on('update', (update) => {
+          // Live transcript updates
+          if (update.transcript) {
+            const el = document.getElementById('transcript');
+            el.innerHTML = '';
+            for (const turn of update.transcript) {
+              addMessage(turn.role === 'agent' ? 'agent' : 'user', turn.content);
+            }
+          }
+        });
+
+        await retellClient.startCall({ accessToken: access_token });
+
+      } catch (err) {
+        console.error('startCall failed:', err);
+        setButtonState('idle');
+        setStatus('idle', `Failed: ${err.message}`);
+      }
+    }
+
+    function endCall() {
+      if (retellClient) {
+        retellClient.stopCall();
+        retellClient = null;
+      }
+      callActive = false;
+      setButtonState('idle');
+      setStatus('ended', 'Call ended — tap to call again');
+      stopTimer();
+      hideTranscriptLive();
+    }
+  </script>
+
+</body>
+</html>
