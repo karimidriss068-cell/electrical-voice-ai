@@ -187,6 +187,18 @@ function handleOutboundWebSocket(ws) {
           }).catch(() => {});
         }
 
+        // Programmatic end detection
+        const lastUserMsg = (transcript[transcript.length - 1]?.content || '').toLowerCase().trim();
+        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|bye|goodbye|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
+        if (callerIsDone && assistantText) {
+          const isClosing = /\b(take care|have a great|thanks for|all set|you're set|we'll|someone will|team will|reach out|call you back|bye|goodbye)\b/i.test(assistantText);
+          if (isClosing) {
+            log(callId, `Auto end_call — caller done, closing detected`);
+            sendResponse(ws, msg.response_id, assistantText, true);
+            return;
+          }
+        }
+
         const finalResponse = assistantText || "Is there anything else I can help you with?";
         state.addTranscriptEntry(callId, 'agent', finalResponse);
         log(callId, `"${finalResponse.substring(0, 80)}"`);

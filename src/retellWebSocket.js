@@ -189,6 +189,22 @@ function handleRetellWebSocket(ws) {
           );
         }
 
+        // Programmatic end detection — don't rely solely on GPT-4o calling end_call
+        const savedState = state.get(callId);
+        const lastUserMsg = (transcript[transcript.length - 1]?.content || '').toLowerCase().trim();
+        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|bye|goodbye|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome)\b/.test(lastUserMsg);
+        const actionWasFired = savedState?.intent;
+
+        if (callerIsDone && actionWasFired && assistantText) {
+          // Check if the assistant response is a closing — if so, end the call
+          const isClosing = /\b(take care|have a great|thanks for calling|all set|you're set|we'll take care|someone will|team will|reach out|call you back|bye|goodbye)\b/i.test(assistantText);
+          if (isClosing) {
+            log(callId, `Auto end_call — caller done, action fired, closing detected`);
+            sendResponse(ws, msg.response_id, assistantText, true);
+            return;
+          }
+        }
+
         const finalResponse = assistantText || "Is there anything else I can help you with?";
         state.addTranscriptEntry(callId, 'agent', finalResponse);
         log(callId, `"${finalResponse.substring(0, 80)}"`);
