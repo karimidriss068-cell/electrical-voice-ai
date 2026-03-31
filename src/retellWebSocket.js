@@ -46,12 +46,20 @@ function handleRetellWebSocket(ws) {
   function endCall(responseId, message) {
     if (callEnded) return;
     callEnded = true;
-    log(callId, `ENDING CALL — "${message.substring(0, 60)}"`);
-    sendResponse(ws, responseId, message, true);
-    // Force close WS after short delay in case Retell ignores end_call flag
+    const closing = message || "It was so great talking with you! Thanks for calling F-E-S Electrical Services. Have a wonderful day!";
+    log(callId, `ENDING CALL — "${closing.substring(0, 60)}"`);
+    // Step 1: send the closing message so Retell plays it
+    sendResponse(ws, responseId, closing, false);
+    // Step 2: after enough time for TTS to play, send end_call signal
+    setTimeout(() => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ response_id: (responseId || 0) + 1, content: '', content_complete: true, end_call: true }));
+      }
+    }, 4000);
+    // Step 3: force close after 15s as safety net
     setTimeout(() => {
       if (ws.readyState === ws.OPEN) ws.close();
-    }, 2000);
+    }, 15000);
   }
 
   ws.on('message', async (data) => {

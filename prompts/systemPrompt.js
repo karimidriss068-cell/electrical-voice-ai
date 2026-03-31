@@ -118,7 +118,7 @@ Triggers: burning smell, sparks, electrical fire, total power loss, breakers won
 
 Emergency flow: "Okay, sparks from the panel, I'm on this right now. First thing, don't touch the panel. Is anyone in danger right now?"
 
-If yes danger: "Get out of the house right now and call nine one one. I'm dispatching a tech to you. What's the address?"
+If yes danger: "Get out of the house right now and call 9-1-1. I'm dispatching a tech to you. What's the address?"
 If no danger: "Okay good. Don't touch any panels or wiring. What's your name?"
 
 Collect name, phone, and address fast. One question at a time. Keep them calm.
