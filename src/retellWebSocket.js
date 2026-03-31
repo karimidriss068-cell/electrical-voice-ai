@@ -203,7 +203,7 @@ function handleRetellWebSocket(ws) {
 
         // Handle end_call function — say goodbye and hang up
         if (actionData?.type === 'END_CALL') {
-          endCall(msg.response_id, actionData.data?.closing_message || "Thanks for calling F-E-S Electrical Services. Take care!");
+          endCall(msg.response_id, actionData.data?.closing_message || "It was so great talking with you today! Thanks for calling F-E-S Electrical Services — we truly appreciate it. Have a wonderful day and take care!");
           return;
         }
 
@@ -224,7 +224,7 @@ function handleRetellWebSocket(ws) {
         // Hard stop: caller says bye → end immediately
         const callerSaidBye = /\b(bye|goodbye|bye bye|good bye|take care|have a good|have a great|talk later|gotta go)\b/.test(lastUserMsg);
         if (callerSaidBye) {
-          endCall(msg.response_id, assistantText || "Take care! Thanks for calling F-E-S Electrical Services!");
+          endCall(msg.response_id, assistantText || "It was great talking with you! Thanks so much for calling F-E-S Electrical Services — we truly appreciate it. Have a wonderful day and take care!");
           return;
         }
 
@@ -236,7 +236,7 @@ function handleRetellWebSocket(ws) {
           if (/is there anything else|anything else i can|anything else for you/i.test(assistantText)) {
             // Volt is asking "anything else?" — let it, but next response will end
           } else {
-            endCall(msg.response_id, assistantText || "You're all set. Thanks for calling F-E-S Electrical Services, take care!");
+            endCall(msg.response_id, assistantText || "You're all set! It was a pleasure helping you today. Thanks so much for calling F-E-S Electrical Services — we really appreciate your business. Have an amazing day and don't hesitate to call us anytime!");
             return;
           }
         }
