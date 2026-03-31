@@ -115,8 +115,8 @@ function handleRetellWebSocket(ws) {
           }
         }
 
-        // Safety net: if call_details was missed, send greeting now before anything else
-        if (!hasGreeted && (!msg.transcript || msg.transcript.length === 0)) {
+        // Always greet first — no matter what, if we haven't greeted, do it now
+        if (!hasGreeted) {
           const toNumber = msg.call?.to_number || null;
           if (!tenant) tenant = getTenant(toNumber);
           if (!systemPrompt) systemPrompt = getSystemPromptForTenant(tenant);
@@ -126,7 +126,6 @@ function handleRetellWebSocket(ws) {
           hasGreeted = true;
           return;
         }
-        hasGreeted = true;
 
         // Ensure tenant and system prompt are resolved (in case call_details was missed)
         if (!tenant) {
