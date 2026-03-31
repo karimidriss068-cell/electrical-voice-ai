@@ -1,9 +1,11 @@
 const OpenAI = require('openai');
 const { COMPANY_NAME } = require('../config/constants');
-const { getSystemPrompt } = require('../prompts/systemPrompt');
+const { getSystemPrompt, getSystemPromptForTenant } = require('../prompts/systemPrompt');
+const { getTenant } = require('../config/tenants');
 const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
 const state = require('./conversationState');
 const n8n = require('./n8nClient');
+const { functions } = require('./functions');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
@@ -19,15 +21,22 @@ function log(callId, message) {
   console.log(`[${new Date().toISOString()}] [retellWS] [${callId}] ${message}`);
 }
 
+// Map function names to action types
+const FUNCTION_TO_ACTION = {
+  dispatch_emergency: 'EMERGENCY',
+  book_appointment: 'BOOKING',
+  request_quote: 'QUOTE',
+  check_job_status: 'JOB_STATUS',
+  transfer_to_human: 'HUMAN_TRANSFER',
+};
+
 const { stripAndExtractAction } = require('./actionParser');
 
 function handleRetellWebSocket(ws) {
   let callId = null;
   let callState = null;
-  const companyName = COMPANY_NAME || 'FES Electrical Services';
-
-  // Pre-cache the system prompt for this connection
-  const systemPrompt = getOrCacheSystemPrompt();
+  let tenant = null;
+  let systemPrompt = null;
 
   ws.on('message', async (data) => {
     try {
@@ -53,12 +62,19 @@ function handleRetellWebSocket(ws) {
       // call_details — send short greeting
       if (msg.interaction_type === 'call_details') {
         callState = state.create(callId);
+
+        // Resolve tenant from to_number (the number the caller dialed)
+        const toNumber = msg.call?.to_number || null;
+        tenant = getTenant(toNumber);
+        systemPrompt = getSystemPromptForTenant(tenant);
+
         if (msg.call?.from_number) {
           state.update(callId, { callerPhone: msg.call.from_number });
         }
-        log(callId, `Call from ${msg.call?.from_number || 'unknown'}`);
+        state.update(callId, { tenant });
+        log(callId, `Call from ${msg.call?.from_number || 'unknown'} to ${toNumber || 'unknown'} — tenant: ${tenant.id}`);
 
-        const greeting = `Hey, thanks for calling ${companyName}, this is Volt. What can I help you with?`;
+        const greeting = `Hey, thanks for calling ${tenant.company_name}, this is Volt. What can I help you with?`;
         sendResponse(ws, 0, greeting, false);
         state.addTranscriptEntry(callId, 'agent', greeting);
         return;
@@ -73,35 +89,70 @@ function handleRetellWebSocket(ws) {
           }
         }
 
-        const transcript = msg.transcript || [];
-        const messages = buildMessages(systemPrompt, transcript, msg.interaction_type);
+        // Ensure tenant and system prompt are resolved (in case call_details was missed)
+        if (!tenant) {
+          const toNumber = msg.call?.to_number || null;
+          tenant = getTenant(toNumber);
+          systemPrompt = getSystemPromptForTenant(tenant);
+          state.update(callId, { tenant });
+        }
 
-        let assistantText;
+        const transcript = msg.transcript || [];
+        const messages = buildMessages(systemPrompt || getOrCacheSystemPrompt(), transcript, msg.interaction_type);
+
+        let assistantText = '';
+        let actionData = null;
+
         try {
           const response = await openai.chat.completions.create({
             model: process.env.OPENAI_MODEL || 'gpt-4o',
             max_tokens: 200,
             temperature: 0.85,
             messages,
+            tools: functions,
+            tool_choice: 'auto',
           });
-          assistantText = response.choices[0]?.message?.content || '';
+
+          const choice = response.choices[0];
+          assistantText = choice?.message?.content || '';
+
+          // Check for function calls (primary path)
+          if (choice?.message?.tool_calls && choice.message.tool_calls.length > 0) {
+            const toolCall = choice.message.tool_calls[0];
+            const fnName = toolCall.function.name;
+            const fnArgs = JSON.parse(toolCall.function.arguments);
+            const actionType = FUNCTION_TO_ACTION[fnName];
+
+            if (actionType) {
+              actionData = { type: actionType, data: fnArgs };
+              log(callId, `Function call: ${fnName} -> ${actionType}`);
+            }
+          }
+
+          // Fallback: check text for old ACTIONSTART/ACTIONEND format
+          if (!actionData && assistantText) {
+            const fallback = stripAndExtractAction(assistantText);
+            assistantText = fallback.spokenResponse;
+            actionData = fallback.actionData;
+            if (actionData) {
+              log(callId, `Fallback text action: ${actionData.type}`);
+            }
+          }
         } catch (err) {
           log(callId, `OpenAI error: ${err.message}`);
           sendResponse(ws, msg.response_id, "Technical issue on our end. Someone'll call you right back.", true);
           return;
         }
 
-        const { spokenResponse, actionData } = stripAndExtractAction(assistantText);
-
         // Fire n8n webhook in background — don't block the response
         if (actionData && actionData.type && actionData.data) {
           log(callId, `Action: ${actionData.type}`);
-          handleAction(callId, actionData, callState).catch(err =>
+          handleAction(callId, actionData, callState, tenant).catch(err =>
             log(callId, `Action error: ${err.message}`)
           );
         }
 
-        const finalResponse = spokenResponse || "How can I help you?";
+        const finalResponse = assistantText || "How can I help you?";
         state.addTranscriptEntry(callId, 'agent', finalResponse);
         log(callId, `"${finalResponse.substring(0, 80)}"`);
 
@@ -168,6 +219,7 @@ function buildMessages(systemPrompt, transcript, interactionType) {
 async function handleCallEnded(callId, transcript, call) {
   const callState = state.get(callId);
   const rawTranscript = formatTranscript(transcript || callState?.transcript || []);
+  const tenantConfig = callState?.tenant || null;
 
   await n8n.fireWebhook('CALL_COMPLETE', {
     call_id: callId,
@@ -183,12 +235,12 @@ async function handleCallEnded(callId, transcript, call) {
       handed_off: callState?.handedOff || false,
     },
     raw_transcript: rawTranscript,
-  });
+  }, tenantConfig);
 
   log(callId, `CALL_COMPLETE fired`);
 }
 
-async function handleAction(callId, action, callState) {
+async function handleAction(callId, action, callState, tenantConfig) {
   const { type, data } = action;
   if (!type || !data) return;
 
@@ -210,7 +262,7 @@ async function handleAction(callId, action, callState) {
     caller: enrichedData.caller,
     details: enrichedData.details,
     raw_transcript: enrichedData.raw_transcript,
-  });
+  }, tenantConfig || callState?.tenant || null);
 
   log(callId, `${type} webhook fired`);
 }

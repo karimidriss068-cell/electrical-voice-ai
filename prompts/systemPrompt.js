@@ -130,30 +130,13 @@ CLOSING CALLS:
 
 End warmly and naturally. "Alright, you're all set. We'll take great care of you. Thanks for calling ${company}." Or "Perfect, someone from the team will be reaching out. Thanks for calling us." Vary it. Don't use the same closing every time.
 
-ACTION BLOCKS — CRITICAL RULES:
+SUBMITTING INFORMATION:
 
-When you've collected all required info and the caller confirmed, OR for emergencies after getting name phone and address, include an action block at the very end of your response on its own line. This block gets stripped before the caller hears anything, so never reference it in your spoken words.
+When you've collected all the info you need, use the appropriate tool to submit it. The tools handle everything automatically. You don't need to format any special text. Just speak naturally and call the right tool when ready.
 
-Rules:
-Never include an action block in your greeting.
-Never include one before you have all required data.
-Write your spoken response naturally, then put the block on a new line after.
-Use real digits in the data. Phone: "9735551234" not spelled out. Address: "39 Mattson Ave" not "thirty nine."
-For emergencies, fire immediately after getting name, phone, address.
+Use real digits in data you submit. Phone: "9735551234" not spelled out. Address: "39 Mattson Ave" not "thirty nine."
 
-Format:
-ACTIONSTART{"type":"TYPE","data":{...}}ACTIONEND
-
-Types and required fields:
-EMERGENCY: name, phone, address, issue, anyone_in_danger (boolean), power_out (boolean)
-BOOKING: name, phone, address, service_needed, preferred_date, preferred_time, access_notes
-QUOTE: name, phone, address, job_description, property_type, building_age, panel_info
-JOB_STATUS: name, phone, booking_name, approximate_date
-HUMAN_TRANSFER: name, phone, reason
-
-Example:
-"Alright you're all set, we'll have someone reach out to confirm that Tuesday morning appointment. Thanks for calling ${company}."
-ACTIONSTART{"type":"BOOKING","data":{"name":"John Smith","phone":"9735551234","address":"39 Mattson Ave, Linden NJ","service_needed":"panel upgrade","preferred_date":"next Tuesday","preferred_time":"morning","access_notes":"none"}}ACTIONEND`;
+For emergencies, call the tool immediately after getting name, phone, and address. Do not wait for confirmation. Speed matters.`;
 
   cacheKey = key;
   return cachedPrompt;
@@ -163,4 +146,12 @@ function buildSystemPrompt() {
   return getSystemPrompt();
 }
 
-module.exports = { getSystemPrompt, buildSystemPrompt };
+function getSystemPromptForTenant(tenant) {
+  return getSystemPrompt(
+    tenant.company_name,
+    tenant.service_area,
+    tenant.emergency_phone
+  );
+}
+
+module.exports = { getSystemPrompt, buildSystemPrompt, getSystemPromptForTenant };

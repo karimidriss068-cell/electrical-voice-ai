@@ -5,6 +5,7 @@ const { getSystemPrompt } = require('../prompts/systemPrompt');
 const { classifyAndEnrich, formatTranscript } = require('./intentRouter');
 const state = require('./conversationState');
 const n8n = require('./n8nClient');
+const { functions } = require('./functions');
 
 const router = Router();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -22,6 +23,15 @@ function log(callId, message) {
   console.log(`[${new Date().toISOString()}] [retellHTTP] [${callId}] ${message}`);
 }
 
+// Map function names to action types
+const FUNCTION_TO_ACTION = {
+  dispatch_emergency: 'EMERGENCY',
+  book_appointment: 'BOOKING',
+  request_quote: 'QUOTE',
+  check_job_status: 'JOB_STATUS',
+  transfer_to_human: 'HUMAN_TRANSFER',
+};
+
 // Verify Retell webhook signature
 function verifyRetell(req, res, next) {
   const sig = req.headers['x-retell-signature'];
@@ -37,7 +47,7 @@ router.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'retell-webhook', ready: true });
 });
 
-// Reuse same stripAndExtractAction from WebSocket module
+// Keep old actionParser as fallback
 const { stripAndExtractAction } = require('./actionParser');
 
 router.post('/', async (req, res) => {
@@ -85,15 +95,44 @@ router.post('/', async (req, res) => {
       const systemPrompt = getOrCachePrompt();
       const messages = buildMessages(systemPrompt, transcript, interaction_type);
 
-      let assistantText;
+      let assistantText = '';
+      let actionData = null;
+
       try {
         const response = await openai.chat.completions.create({
           model: process.env.OPENAI_MODEL || 'gpt-4o',
           max_tokens: 200,
           temperature: 0.85,
           messages,
+          tools: functions,
+          tool_choice: 'auto',
         });
-        assistantText = response.choices[0]?.message?.content || '';
+
+        const choice = response.choices[0];
+        assistantText = choice?.message?.content || '';
+
+        // Check for function calls (primary path)
+        if (choice?.message?.tool_calls && choice.message.tool_calls.length > 0) {
+          const toolCall = choice.message.tool_calls[0];
+          const fnName = toolCall.function.name;
+          const fnArgs = JSON.parse(toolCall.function.arguments);
+          const actionType = FUNCTION_TO_ACTION[fnName];
+
+          if (actionType) {
+            actionData = { type: actionType, data: fnArgs };
+            log(callId, `Function call: ${fnName} -> ${actionType}`);
+          }
+        }
+
+        // Fallback: check text for old ACTIONSTART/ACTIONEND format
+        if (!actionData && assistantText) {
+          const fallback = stripAndExtractAction(assistantText);
+          assistantText = fallback.spokenResponse;
+          actionData = fallback.actionData;
+          if (actionData) {
+            log(callId, `Fallback text action: ${actionData.type}`);
+          }
+        }
       } catch (err) {
         log(callId, `OpenAI error: ${err.message}`);
         return res.json({
@@ -104,8 +143,6 @@ router.post('/', async (req, res) => {
         });
       }
 
-      const { spokenResponse, actionData } = stripAndExtractAction(assistantText);
-
       if (actionData && actionData.type && actionData.data) {
         log(callId, `Action: ${actionData.type}`);
         // Fire in background
@@ -114,7 +151,7 @@ router.post('/', async (req, res) => {
         );
       }
 
-      const finalResponse = spokenResponse || "How can I help you?";
+      const finalResponse = assistantText || "How can I help you?";
       state.addTranscriptEntry(callId, 'agent', finalResponse);
 
       return res.json({

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Volt AI — Call Center Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; }
+    .card { background: #1e293b; border: 1px solid #334155; }
+    .pulse-dot { animation: pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .intent-EMERGENCY { color: #ef4444; }
+    .intent-BOOKING { color: #3b82f6; }
+    .intent-QUOTE { color: #22c55e; }
+    .intent-JOB_STATUS { color: #eab308; }
+    .intent-HUMAN_TRANSFER { color: #f97316; }
+    .intent-UNKNOWN { color: #94a3b8; }
+    .badge-EMERGENCY { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .badge-BOOKING { background: rgba(59,130,246,0.15); color: #3b82f6; border: 1px solid rgba(59,130,246,0.3); }
+    .badge-QUOTE { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-JOB_STATUS { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+    .badge-HUMAN_TRANSFER { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+    .badge-UNKNOWN { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
+    .status-active { color: #22c55e; }
+    .status-completed { color: #94a3b8; }
+    .status-transferred { color: #f97316; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen text-gray-100">
+
+  <!-- Header -->
+  <header class="border-b border-gray-700/50 px-4 sm:px-6 py-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center font-bold text-gray-900 text-lg">
+          V
+        </div>
+        <div>
+          <h1 class="text-xl font-bold text-gray-100">Volt AI <span class="text-gray-500 font-normal">—</span> Call Center Dashboard</h1>
+          <p class="text-xs text-gray-500">FES Electrical Services</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="connection-status" class="flex items-center gap-1.5 text-xs text-gray-500">
+          <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+          Connecting...
+        </span>
+        <span id="uptime" class="text-xs text-gray-600 hidden sm:inline"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Stat Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Active Calls -->
+      <div class="card rounded-xl p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Active Calls</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-green-500 pulse-dot"></span>
+        </div>
+        <p id="stat-active" class="text-3xl font-bold text-green-400">0</p>
+        <p class="text-xs text-gray-500 mt-1">Live right now</p>
+      </div>
+      <!-- Calls Today -->
+      <div class="card rounded-xl p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Calls Today</span>
+          <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+        </div>
+        <p id="stat-today" class="text-3xl font-bold text-gray-100">0</p>
+        <p class="text-xs text-gray-500 mt-1">Since midnight</p>
+      </div>
+      <!-- Emergencies -->
+      <div class="card rounded-xl p-5 border-red-900/30">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-red-400 uppercase tracking-wider">Emergencies</span>
+          <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        </div>
+        <p id="stat-emergencies" class="text-3xl font-bold text-red-400">0</p>
+        <p class="text-xs text-gray-500 mt-1">Urgent today</p>
+      </div>
+      <!-- Avg Response -->
+      <div class="card rounded-xl p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Avg Response</span>
+          <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <p id="stat-response" class="text-3xl font-bold text-gray-100">--</p>
+        <p class="text-xs text-gray-500 mt-1">Milliseconds</p>
+      </div>
+    </div>
+
+    <!-- Quick Stats Row -->
+    <div class="flex flex-wrap gap-3">
+      <span class="card rounded-lg px-3 py-1.5 text-xs">
+        <span class="text-blue-400 font-medium" id="stat-bookings">0</span>
+        <span class="text-gray-500 ml-1">Bookings</span>
+      </span>
+      <span class="card rounded-lg px-3 py-1.5 text-xs">
+        <span class="text-green-400 font-medium" id="stat-quotes">0</span>
+        <span class="text-gray-500 ml-1">Quotes</span>
+      </span>
+      <span class="card rounded-lg px-3 py-1.5 text-xs">
+        <span class="text-orange-400 font-medium" id="stat-transfers">0</span>
+        <span class="text-gray-500 ml-1">Transfers</span>
+      </span>
+    </div>
+
+    <!-- Call Feed -->
+    <div class="card rounded-xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-700/50 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-300">Recent Calls</h2>
+        <span id="call-count" class="text-xs text-gray-500">0 calls</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700/30">
+              <th class="text-left px-5 py-3 font-medium">Time</th>
+              <th class="text-left px-5 py-3 font-medium">Caller</th>
+              <th class="text-left px-5 py-3 font-medium">Intent</th>
+              <th class="text-left px-5 py-3 font-medium">Status</th>
+              <th class="text-right px-5 py-3 font-medium">Duration</th>
+            </tr>
+          </thead>
+          <tbody id="call-table-body">
+            <tr>
+              <td colspan="5" class="text-center py-12 text-gray-600">
+                <p class="text-sm">No calls yet</p>
+                <p class="text-xs mt-1">Waiting for incoming calls...</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-800 mt-8 py-4 text-center text-xs text-gray-600">
+    Volt AI &middot; FES Electrical Services &middot; Dashboard v1.0
+  </footer>
+
+  <script>
+    const REFRESH_INTERVAL = 5000;
+
+    function formatTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds === 0) return '--';
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+
+    function formatUptime(seconds) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `Uptime: ${h}h ${m}m`;
+    }
+
+    function setConnectionStatus(ok) {
+      const el = document.getElementById('connection-status');
+      if (ok) {
+        el.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 pulse-dot"></span> Live';
+        el.className = 'flex items-center gap-1.5 text-xs text-green-400';
+      } else {
+        el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> Offline';
+        el.className = 'flex items-center gap-1.5 text-xs text-red-400';
+      }
+    }
+
+    function renderCallRow(call) {
+      const intentClass = `badge-${call.intent || 'UNKNOWN'}`;
+      const statusClass = `status-${call.status || 'active'}`;
+      return `
+        <tr class="border-b border-gray-700/20 hover:bg-gray-800/30 transition-colors">
+          <td class="px-5 py-3 text-gray-400 whitespace-nowrap">${formatTime(call.timestamp)}</td>
+          <td class="px-5 py-3">
+            <div class="text-gray-200">${escapeHtml(call.caller_name)}</div>
+            ${call.caller_phone ? `<div class="text-xs text-gray-500">${escapeHtml(call.caller_phone)}</div>` : ''}
+          </td>
+          <td class="px-5 py-3">
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium ${intentClass}">${call.intent || 'UNKNOWN'}</span>
+          </td>
+          <td class="px-5 py-3 ${statusClass} capitalize text-xs font-medium">${call.status || 'active'}</td>
+          <td class="px-5 py-3 text-right text-gray-400 tabular-nums">${formatDuration(call.duration_seconds)}</td>
+        </tr>
+      `;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    async function fetchDashboard() {
+      try {
+        const res = await fetch('/api/dashboard');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Update stats
+        document.getElementById('stat-active').textContent = data.stats.active_calls || 0;
+        document.getElementById('stat-today').textContent = data.stats.today.total || 0;
+        document.getElementById('stat-emergencies').textContent = data.stats.today.emergencies || 0;
+        document.getElementById('stat-bookings').textContent = data.stats.today.bookings || 0;
+        document.getElementById('stat-quotes').textContent = data.stats.today.quotes || 0;
+        document.getElementById('stat-transfers').textContent = data.stats.today.transfers || 0;
+
+        const avgMs = data.stats.today.avg_response_ms;
+        document.getElementById('stat-response').textContent = avgMs > 0 ? `${avgMs}ms` : '--';
+
+        // Update uptime
+        if (data.server_uptime) {
+          const uptimeEl = document.getElementById('uptime');
+          uptimeEl.textContent = formatUptime(Math.floor(data.server_uptime));
+          uptimeEl.classList.remove('hidden');
+        }
+
+        // Update call table
+        const tbody = document.getElementById('call-table-body');
+        const calls = data.recent_calls || [];
+        document.getElementById('call-count').textContent = `${calls.length} call${calls.length !== 1 ? 's' : ''}`;
+
+        if (calls.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="5" class="text-center py-12 text-gray-600">
+                <p class="text-sm">No calls yet</p>
+                <p class="text-xs mt-1">Waiting for incoming calls...</p>
+              </td>
+            </tr>
+          `;
+        } else {
+          tbody.innerHTML = calls.map(renderCallRow).join('');
+        }
+
+        setConnectionStatus(true);
+      } catch (err) {
+        console.error('Dashboard fetch failed:', err);
+        setConnectionStatus(false);
+      }
+    }
+
+    // Initial fetch and interval
+    fetchDashboard();
+    setInterval(fetchDashboard, REFRESH_INTERVAL);
+  </script>
+</body>
+</html>

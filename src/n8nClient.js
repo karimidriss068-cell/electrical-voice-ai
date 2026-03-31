@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { N8N_WEBHOOK_SECRET, COMPANY_NAME } = require('../config/constants');
+const { sendConfirmationSMS } = require('./smsClient');
 
 const RETRY_COUNT = 3;
 const RETRY_DELAY_MS = 2000;
@@ -155,6 +156,11 @@ async function fireWebhook(actionType, data) {
     console.error(`[n8nClient] All ${RETRY_COUNT} retries failed for ${label} — logging to disk`);
     logFailedWebhook(payload);
   }
+
+  // Send SMS confirmation in background
+  sendConfirmationSMS(actionType, data, data.call_id).catch(err =>
+    console.log(`[n8n] SMS error: ${err.message}`)
+  );
 
   // For EMERGENCY, also fire SMS alert via Text Engine as redundant channel
   if (actionType === 'EMERGENCY') {

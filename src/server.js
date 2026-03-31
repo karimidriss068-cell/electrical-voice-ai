@@ -1,18 +1,33 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const path = require('path');
 const { WebSocketServer } = require('ws');
 require('dotenv').config();
 
 const { PORT, COMPANY_NAME } = require('../config/constants');
 const retellHandler = require('./retellHandler');
 const { handleRetellWebSocket } = require('./retellWebSocket');
+const callLog = require('./callLog');
 
 const app = express();
 const server = http.createServer(app);
 
 app.use(cors());
 app.use(express.json());
+
+// Serve admin dashboard
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Dashboard API
+app.get('/api/dashboard', (req, res) => {
+  res.json({
+    stats: callLog.getStats(),
+    recent_calls: callLog.getRecentCalls(50),
+    server_uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Health check
 app.get('/health', (_req, res) => {
