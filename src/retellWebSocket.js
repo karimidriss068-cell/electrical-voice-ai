@@ -42,28 +42,25 @@ function handleRetellWebSocket(ws) {
   let hasGreeted = false;
   let callEnded = false;
   let actionFiredLocally = false;
+  let processing = false; // prevent concurrent message handling
 
   function endCall(responseId, message) {
     if (callEnded) return;
     callEnded = true;
     const closing = message || "It was so great talking with you! Thanks for calling F-E-S Electrical Services. Have a wonderful day!";
     log(callId, `ENDING CALL — "${closing.substring(0, 60)}"`);
-    // Step 1: send the closing message so Retell plays it
-    sendResponse(ws, responseId, closing, false);
-    // Step 2: after enough time for TTS to play, send end_call signal
-    setTimeout(() => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ response_id: (responseId || 0) + 1, content: '', content_complete: true, end_call: true }));
-      }
-    }, 4000);
-    // Step 3: force close after 15s as safety net
+    // Send closing message with end_call: true so Retell plays it then hangs up
+    sendResponse(ws, responseId, closing, true);
+    // Force close WS after 12s to give TTS time to fully play
     setTimeout(() => {
       if (ws.readyState === ws.OPEN) ws.close();
-    }, 15000);
+    }, 12000);
   }
 
   ws.on('message', async (data) => {
-    if (callEnded) return; // Ignore all messages after call is ended
+    if (callEnded) return;
+    if (processing) return; // Drop concurrent requests — only one at a time
+    processing = true;
     try {
       const msg = JSON.parse(data.toString());
       callId = msg.call_id || msg.call?.call_id || msg.call?.id || callId || 'unknown';
@@ -260,6 +257,8 @@ function handleRetellWebSocket(ws) {
       try {
         sendResponse(ws, 0, "Sorry, could you say that again?", false);
       } catch (e) {}
+    } finally {
+      processing = false; // Always release lock
     }
   });
 
