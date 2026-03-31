@@ -68,6 +68,42 @@ app.get('/api/outbound-call/types', (_req, res) => {
   res.json({ call_types: Object.keys(CALL_TYPES) });
 });
 
+// Create a Retell web call (browser-based, returns access_token for SDK)
+// POST /api/create-web-call { agent_id }
+app.post('/api/create-web-call', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  const { agent_id } = req.body;
+  if (!agent_id) {
+    return res.status(400).json({ error: 'agent_id is required' });
+  }
+
+  try {
+    const response = await fetch('https://api.retellai.com/v2/create-web-call', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RETELL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ agent_id }),
+    });
+
+    const data = await response.json();
+
+    console.log(`[${new Date().toISOString()}] [create-web-call] agent_id=${agent_id} call_id=${data.call_id || 'unknown'} status=${response.status}`);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message || 'Retell API error', details: data });
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] [create-web-call] Error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // HTTP POST fallback for Retell webhook
 app.use('/retell-webhook', retellHandler);
 
