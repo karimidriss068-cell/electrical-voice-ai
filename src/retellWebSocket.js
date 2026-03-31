@@ -39,6 +39,7 @@ function handleRetellWebSocket(ws) {
   let callState = null;
   let tenant = null;
   let systemPrompt = null;
+  let hasGreeted = false;
 
   ws.on('message', async (data) => {
     try {
@@ -97,9 +98,10 @@ function handleRetellWebSocket(ws) {
           state.update(callId, { tenant });
           log(callId, `Inbound call from ${msg.call?.from_number || 'unknown'} to ${toNumber || 'unknown'} — tenant: ${tenant.id}`);
 
-          const greeting = `Hey, thanks for calling ${tenant.company_name}, this is Volt. What can I help you with?`;
+          const greeting = `Hey, thanks for calling F-E-S Electrical Services, this is Volt. What can I help you with today?`;
           sendResponse(ws, msg.response_id || 0, greeting, false);
           state.addTranscriptEntry(callId, 'agent', greeting);
+          hasGreeted = true;
         }
         return;
       }
@@ -112,6 +114,19 @@ function handleRetellWebSocket(ws) {
             state.update(callId, { callerPhone: msg.call.from_number });
           }
         }
+
+        // Safety net: if call_details was missed, send greeting now before anything else
+        if (!hasGreeted && (!msg.transcript || msg.transcript.length === 0)) {
+          const toNumber = msg.call?.to_number || null;
+          if (!tenant) tenant = getTenant(toNumber);
+          if (!systemPrompt) systemPrompt = getSystemPromptForTenant(tenant);
+          const greeting = `Hey, thanks for calling F-E-S Electrical Services, this is Volt. What can I help you with today?`;
+          sendResponse(ws, msg.response_id, greeting, false);
+          state.addTranscriptEntry(callId, 'agent', greeting);
+          hasGreeted = true;
+          return;
+        }
+        hasGreeted = true;
 
         // Ensure tenant and system prompt are resolved (in case call_details was missed)
         if (!tenant) {
@@ -203,17 +218,21 @@ function handleRetellWebSocket(ws) {
           return;
         }
 
-        // Soft stop: caller signals done + action already fired → end the call
-        // NOTE: state stores intent as current_intent
-        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome|nothing else|all good)\b/.test(lastUserMsg);
+        // Soft stop: caller signals done + action already fired
+        const callerIsDone = /\b(thanks|thank you|okay|ok|alright|sounds good|perfect|that's it|that's all|that's good|no|nope|you're good|i'm good|we're good|got it|great|awesome|nothing else|all good|no thanks|no thank you)\b/.test(lastUserMsg);
         const actionWasFired = savedState?.current_intent || savedState?.action_fired;
+
         if (callerIsDone && actionWasFired) {
-          const closing = (assistantText && !/is there anything else/i.test(assistantText))
-            ? assistantText
-            : "You're all set. Thanks for calling, take care!";
-          log(callId, `Soft end_call — caller done + action fired (intent: ${savedState?.current_intent})`);
-          sendResponse(ws, msg.response_id, closing, true);
-          return;
+          // If Volt's response is asking "anything else" — let it ask once, don't end yet
+          if (/is there anything else|anything else i can|anything else for you/i.test(assistantText)) {
+            // Let it ask — next response will end
+          } else {
+            // Volt said something other than "anything else" — this is the close, end the call
+            const closing = assistantText || "You're all set. Thanks for calling F-E-S Electrical Services, take care!";
+            log(callId, `Soft end_call — caller done + action fired (intent: ${savedState?.current_intent})`);
+            sendResponse(ws, msg.response_id, closing, true);
+            return;
+          }
         }
 
         const finalResponse = assistantText || "Is there anything else I can help you with?";
