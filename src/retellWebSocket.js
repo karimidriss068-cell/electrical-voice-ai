@@ -29,6 +29,7 @@ const FUNCTION_TO_ACTION = {
   request_quote: 'QUOTE',
   check_job_status: 'JOB_STATUS',
   transfer_to_human: 'HUMAN_TRANSFER',
+  end_call: 'END_CALL',
 };
 
 const { stripAndExtractAction } = require('./actionParser');
@@ -97,7 +98,7 @@ function handleRetellWebSocket(ws) {
           log(callId, `Inbound call from ${msg.call?.from_number || 'unknown'} to ${toNumber || 'unknown'} — tenant: ${tenant.id}`);
 
           const greeting = `Hey, thanks for calling ${tenant.company_name}, this is Volt. What can I help you with?`;
-          sendResponse(ws, 0, greeting, false);
+          sendResponse(ws, msg.response_id || 0, greeting, false);
           state.addTranscriptEntry(callId, 'agent', greeting);
         }
         return;
@@ -172,6 +173,14 @@ function handleRetellWebSocket(ws) {
           return;
         }
 
+        // Handle end_call function — say goodbye and hang up
+        if (actionData?.type === 'END_CALL') {
+          const goodbye = actionData.data?.closing_message || "Thanks for calling. Take care!";
+          log(callId, `END_CALL — "${goodbye}"`);
+          sendResponse(ws, msg.response_id, goodbye, true);
+          return;
+        }
+
         // Fire n8n webhook in background — don't block the response
         if (actionData && actionData.type && actionData.data) {
           log(callId, `Action: ${actionData.type}`);
@@ -180,7 +189,7 @@ function handleRetellWebSocket(ws) {
           );
         }
 
-        const finalResponse = assistantText || "How can I help you?";
+        const finalResponse = assistantText || "Is there anything else I can help you with?";
         state.addTranscriptEntry(callId, 'agent', finalResponse);
         log(callId, `"${finalResponse.substring(0, 80)}"`);
 

@@ -90,6 +90,20 @@ const functions = [
         required: ["name", "phone", "reason"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "end_call",
+      description: "End the call. Use this ONLY after you have said your closing words and the caller is satisfied. Do not end the call mid-conversation. Say goodbye first, then call this.",
+      parameters: {
+        type: "object",
+        properties: {
+          closing_message: { type: "string", description: "Your final spoken goodbye to the caller" }
+        },
+        required: ["closing_message"]
+      }
+    }
   }
 ];
 
