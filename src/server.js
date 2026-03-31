@@ -8,6 +8,7 @@ require('dotenv').config();
 const { PORT, COMPANY_NAME } = require('../config/constants');
 const retellHandler = require('./retellHandler');
 const { handleRetellWebSocket } = require('./retellWebSocket');
+const { handleOutboundWebSocket } = require('./outboundWebSocket');
 const callLog = require('./callLog');
 const { triggerOutboundCall, CALL_TYPES } = require('./outboundCaller');
 
@@ -74,8 +75,13 @@ app.use('/retell-webhook', retellHandler);
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
-  console.log(`[WebSocket] New connection on path: ${req.url}`);
-  handleRetellWebSocket(ws);
+  const pathname = req.url || '';
+  console.log(`[WebSocket] New connection on path: ${pathname}`);
+  if (pathname.startsWith('/llm-websocket/outbound')) {
+    handleOutboundWebSocket(ws);
+  } else {
+    handleRetellWebSocket(ws);
+  }
 });
 
 // Handle WebSocket upgrade manually to accept any path
@@ -83,7 +89,6 @@ server.on('upgrade', (request, socket, head) => {
   const pathname = request.url;
   console.log(`[WebSocket] Upgrade request on path: ${pathname}`);
 
-  // Accept WebSocket connections on any path containing llm-websocket or retell-webhook
   if (pathname.startsWith('/llm-websocket') || pathname.startsWith('/retell-webhook')) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
