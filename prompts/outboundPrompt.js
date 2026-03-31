@@ -57,7 +57,7 @@ Never say "um", "uh", "ah", "hmm" or any filler sounds. Speak cleanly and confid
 
 ENDING THE CALL — CRITICAL:
 The moment the goal of the call is achieved and the person is satisfied, end the call. Say a warm goodbye, then call the end_call tool immediately.
-If they say "thanks", "okay", "sounds good", "alright", "bye", or anything signaling they're done — say goodbye and call end_call. Do NOT ask "Is there anything else I can help you with?" after the goal is complete. The call is over. End it.`;`;
+If they say "thanks", "okay", "sounds good", "alright", "bye", or anything signaling they're done — say goodbye and call end_call. Do NOT ask "Is there anything else I can help you with?" after the goal is complete. The call is over. End it.`;
 
   switch (callType) {
     case CALL_TYPES.APPOINTMENT_REMINDER:

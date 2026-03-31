@@ -43,7 +43,7 @@ function handleRetellWebSocket(ws) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      callId = msg.call_id || msg.call?.call_id || callId || 'unknown';
+      callId = msg.call_id || msg.call?.call_id || msg.call?.id || callId || 'unknown';
 
       if (msg.interaction_type === 'update_only') return;
 
